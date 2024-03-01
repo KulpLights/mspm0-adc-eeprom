@@ -1,8 +1,0 @@
-"./mspm0-linux-spi-rtc.o"
-"./syscfg/ti_msp_dl_config.o"
-"./rtc.o"
-"./spi_target.o"
-"./ticlang/startup_mspm0g3507_ticlang.o"
-"../mspm0g3507.cmd"
--l"C:/ti/mspm0_sdk_0_52_00_03_eng/source/ti/driverlib/lib/ticlang/m0p/mspm0g/driverlib.a"
--llibc.a
