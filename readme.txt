@@ -14,7 +14,7 @@ management functions into one programmable device.
 Target platforms
 ================================================================================
 
-PocketBeagle2
+PocketBeagle 2
  - PCU running on MSPM0L1105TRGER device
 
 ================================================================================
