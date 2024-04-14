@@ -55,26 +55,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "system.h"
-#include "emulation/at24_emulation.h"
-
-/*!
- * @brief Indicates if the I2C EEPROM emulation module started properly
- */
-bool eeprom_online;
 
 int main(void)
 {
     /* Initialize modules, IO, and NVIC */
     System_init();
-
-    /* Start the EEPROM emulation module */
-    if(at24_open(TAR_I2C_INST) == 0)
-    {
-        eeprom_online = true;
-    } else
-    {
-        eeprom_online = false;
-    }
 
     /* Enter the application loop */
     while (1)

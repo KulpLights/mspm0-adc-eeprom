@@ -41,10 +41,62 @@
 
 #include "ti_msp_dl_config.h"
 #include "communication/i2c_tar_driver.h"
+#include "emulation/at24_emulation.h"
 #include "system.h"
 
-extern i2c_tar_driver_t at24_i2c;
+/*!
+ * @brief   Length of the I2C receive buffer in bytes
+ *
+ * This is the maximum number of bytes which can be received by the I2C
+ * target driver.  For the EEPROM target function, this buffer needs to be
+ * at least the size of one page (to support page writes), plus an
+ * additional two bytes for the address.
+ */
+#define TAR_I2C_RXBUF_LEN 34
 
+/*!
+ * @brief   Length of the I2C transmit buffer in bytes
+ *
+ * This is the # of bytes which may be transmitted at once before another
+ * callback is issued from the I2C target driver to this library.
+ */
+#define TAR_I2C_TXBUF_LEN 4
+
+/**
+ * @brief   I2C target driver RX buffer
+ */
+uint8_t tar_i2c_rxbuf[TAR_I2C_RXBUF_LEN];
+
+/**
+ * @brief   I2C target driver TX buffer
+ */
+uint8_t tar_i2c_txbuf[TAR_I2C_TXBUF_LEN];
+
+/**
+ * The I2C target driver data structure instance for the I2C I/F we
+ * are using for communication with external I2C bus controllers
+ */
+i2c_tar_driver_t tar_i2c =
+{
+    .pModule = TAR_I2C_INST,
+    .pRxBuf = &tar_i2c_rxbuf[0],
+    .rxBufLen = TAR_I2C_RXBUF_LEN,
+    .pTxBuf = &tar_i2c_txbuf[0],
+    .txBufLen = TAR_I2C_TXBUF_LEN,
+    .rxCallback = &at24_i2c_rx_callback,
+    .txCallback = &at24_i2c_tx_callback,
+    .rxCallback2 = I2C_TAR_DRIVER_NO_CALLBACK,
+    .txCallback2 = I2C_TAR_DRIVER_NO_CALLBACK
+};
+
+/*!
+ * @brief Indicates if the I2C EEPROM emulation module started properly
+ */
+bool System_eepromOnline;
+
+/*!
+ * @brief Indicates pending system events
+ */
 volatile uint32_t System_pendingEvents;
 
 void System_init(void)
@@ -53,8 +105,14 @@ void System_init(void)
 
     SYSCFG_DL_init();
     
-    DL_GPIO_initDigitalInputFeatures(GPIO_TAR_I2C_IOMUX_SDA, DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN, DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
-    DL_GPIO_initDigitalInputFeatures(GPIO_TAR_I2C_IOMUX_SCL, DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN, DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+    /* Move I2C pins to GPI, check for bus-high condition before
+     * continuing to start the I2C target driver. */
+    DL_GPIO_initDigitalInputFeatures(GPIO_TAR_I2C_IOMUX_SDA, \
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN, \
+        DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initDigitalInputFeatures(GPIO_TAR_I2C_IOMUX_SCL, \
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN, \
+        DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
 
     while (DL_GPIO_readPins(GPIOA, 0x03) != 0x03);
 
@@ -67,11 +125,35 @@ void System_init(void)
         DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
         DL_GPIO_WAKEUP_DISABLE);
     DL_GPIO_enableHiZ(GPIO_TAR_I2C_IOMUX_SDA);
-    DL_GPIO_enableHiZ(GPIO_TAR_I2C_IOMUX_SCL);    
+    DL_GPIO_enableHiZ(GPIO_TAR_I2C_IOMUX_SCL);
 
-    // Temporarily leave peripheral SPI disabled until we add that functionality
+    /* Start the EEPROM emulation module to ensure the EEPROM emulation
+     * is online before starting the I2C target driver */
+    if(at24_open(&tar_i2c) == 0)
+    {
+        System_eepromOnline = true;
+    }
+    else
+    {
+        System_eepromOnline = false;
+    }
+
+    /* If EEPROM module did not load correctly, de-associate
+     * EEPROM emulation library handlers from I2C target driver
+     * so that the I2C target driver does not call handlers
+     * into an invalid EEPROM configuration. */
+    if (System_eepromOnline == false)
+    {
+        tar_i2c.rxCallback = I2C_TAR_DRIVER_NO_CALLBACK;
+        tar_i2c.txCallback = I2C_TAR_DRIVER_NO_CALLBACK;
+    }
+
+    /* Temporarily leave peripheral SPI disabled until we add that functionality */
     DL_SPI_disable(PER_SPI_INST);
+    /* Start the I2C target driver */
+    I2CTarDriver_open(&tar_i2c);
 
+    /* Enable interrupts used by the application */
     NVIC_EnableIRQ(WAKEUP_TIMER_INST_INT_IRQN);
     NVIC_EnableIRQ(TAR_I2C_INST_INT_IRQN);
 //    NVIC_EnableIRQ(PER_SPI_INST_INT_IRQN);
@@ -100,5 +182,5 @@ void WAKEUP_TIMER_INST_IRQHandler(void)
 
 void TAR_I2C_INST_IRQHandler(void)
 {
-    I2CTarDriver_ISR(&at24_i2c);
+    I2CTarDriver_ISR(&tar_i2c);
 }

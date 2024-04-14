@@ -64,7 +64,15 @@ __STATIC_INLINE void I2CTarDriver_handleTxEmptyIRQ(i2c_tar_driver_t *pHandle);
 void I2CTarDriver_open(i2c_tar_driver_t *pHandle)
 {
     pHandle->state = I2C_TAR_DRV_STATE__IDLE;
+
+    /* Clearing the SWUEN in SCTR prevents I2C SCL/SDA low lockup in the event
+     * that the I2C bus is held low by another device for an extended period
+     * of time.  This does mean that this module does not support I2C wake-up
+     * from low power modes in certain circumstances.  The peripheral functional
+     * clock must be greater than or equal to 20X the SCL frequency for correct
+     * operation of the I2C module. */
     pHandle->pModule->SLAVE.SCTR &= ~I2C_SCTR_SWUEN_MASK;
+
     DL_I2C_enableTarget(pHandle->pModule);
     DL_I2C_enableInterrupt(pHandle->pModule, \
         DL_I2C_INTERRUPT_TARGET_START |\
@@ -134,8 +142,22 @@ __STATIC_INLINE void I2CTarDriver_handleStartIRQ(i2c_tar_driver_t *pHandle)
          * was a re-start triggered callback, meaning that we are
          * not going to pause the I2C peripheral for callback processing
          * as we are still in the middle of an I2C frame. */
-        pHandle->rxCallback(pHandle->rxBufPushIdx, \
-            I2C_TAR_DRV_CALL_TRIG__RESTART);
+        if (pHandle->trxToSecAddr == false)
+        {
+            if (pHandle->rxCallback != I2C_TAR_DRIVER_NO_CALLBACK)
+            {
+                pHandle->rxCallback(pHandle->rxBufPushIdx, \
+                    I2C_TAR_DRV_CALL_TRIG__RESTART);
+            }
+        }
+        else
+        {
+            if (pHandle->rxCallback2 != I2C_TAR_DRIVER_NO_CALLBACK)
+            {
+                pHandle->rxCallback2(pHandle->rxBufPushIdx, \
+                    I2C_TAR_DRV_CALL_TRIG__RESTART);
+            }
+        }
     }
     else if (pHandle->state == I2C_TAR_DRV_STATE__TX)
     {
@@ -148,6 +170,16 @@ __STATIC_INLINE void I2CTarDriver_handleStartIRQ(i2c_tar_driver_t *pHandle)
      * condition or a RESTART condition.  We don't know yet if
      * the transaction is RX or TX, so we enable the IRQ's needed
      * for handling both scenarios and put the state to START. */
+    if ((DL_I2C_getTargetStatus(pHandle->pModule) \
+            & DL_I2C_TARGET_STATUS_OWN_ADDR_ALTERNATE_MATCHED) == 0)
+    {
+        pHandle->trxToSecAddr = false;
+    }
+    else
+    {
+        pHandle->trxToSecAddr = true;
+    }
+
     DL_I2C_enableInterrupt(pHandle->pModule, \
         DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER |\
         DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY);
@@ -172,8 +204,22 @@ __STATIC_INLINE void I2CTarDriver_handleStopIRQ(i2c_tar_driver_t *pHandle)
          * communication again, or they need to know to re-try again if
          * they get a NAK. */
         DL_I2C_disableTarget(pHandle->pModule);
-        pHandle->rxCallback(pHandle->rxBufPushIdx, \
-            I2C_TAR_DRV_CALL_TRIG__STOP);
+        if (pHandle->trxToSecAddr == false)
+        {
+            if (pHandle->rxCallback != I2C_TAR_DRIVER_NO_CALLBACK)
+            {
+                pHandle->rxCallback(pHandle->rxBufPushIdx, \
+                    I2C_TAR_DRV_CALL_TRIG__STOP);
+            }
+        }
+        else
+        {
+            if (pHandle->rxCallback2 != I2C_TAR_DRIVER_NO_CALLBACK)
+            {
+                pHandle->rxCallback2(pHandle->rxBufPushIdx, \
+                    I2C_TAR_DRV_CALL_TRIG__STOP);
+            }
+        }
         DL_I2C_enableTarget(pHandle->pModule);
     }
     else if (pHandle->state == I2C_TAR_DRV_STATE__TX)
@@ -244,7 +290,36 @@ __STATIC_INLINE void I2CTarDriver_handleTxEmptyIRQ(i2c_tar_driver_t *pHandle)
      * so we will reset the TX buffer and call the application callback to get
      * the data.  Meanwhile the HW is stretching the clock to hold the bus. */
     I2CTarDriver_resetTXBuf(pHandle);
-    pHandle->txCallback();
+    if (pHandle->trxToSecAddr == false)
+    {
+        if (pHandle->txCallback != I2C_TAR_DRIVER_NO_CALLBACK)
+        {
+            pHandle->txCallback();
+        }
+        else
+        {
+            /* In the event that the 1st I2C target address has a transmit
+             * request and there is no callback registered, we will simply
+             * send back dummy 0xFF's to not block the bus.
+             */
+            I2CTarDriver_write(pHandle, 0xFF);
+        }
+    }
+    else
+    {
+        if (pHandle->txCallback2 != I2C_TAR_DRIVER_NO_CALLBACK)
+        {
+            pHandle->txCallback2();
+        }
+        else
+        {
+            /* In the event that the 2nd I2C target address has a transmit
+             * request and there is no callback registered, we will simply
+             * send back dummy 0xFF's to not block the bus.
+             */
+            I2CTarDriver_write(pHandle, 0xFF);
+        }
+    }
     pHandle->state = I2C_TAR_DRV_STATE__TX;
     DL_I2C_enableInterrupt(pHandle->pModule, \
         DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER);

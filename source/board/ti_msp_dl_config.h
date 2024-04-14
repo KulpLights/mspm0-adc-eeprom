@@ -90,6 +90,7 @@ extern "C" {
 #define TAR_I2C_INST_IRQHandler                                  I2C0_IRQHandler
 #define TAR_I2C_INST_INT_IRQN                                      I2C0_INT_IRQn
 #define TAR_I2C_TARGET_OWN_ADDR                                             0x50
+#define TAR_I2C_TARGET_SEC_OWN_ADDR                                         0x20
 #define GPIO_TAR_I2C_SDA_PORT                                              GPIOA
 #define GPIO_TAR_I2C_SDA_PIN                                       DL_GPIO_PIN_0
 #define GPIO_TAR_I2C_IOMUX_SDA                                    (IOMUX_PINCM1)

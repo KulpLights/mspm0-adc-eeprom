@@ -174,6 +174,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_TAR_I2C_init(void) {
 
     /* Configure Target Mode */
     DL_I2C_setTargetOwnAddress(TAR_I2C_INST, TAR_I2C_TARGET_OWN_ADDR);
+    DL_I2C_setTargetOwnAddressAlternate(TAR_I2C_INST, TAR_I2C_TARGET_SEC_OWN_ADDR);
+    DL_I2C_enableTargetOwnAddressAlternate(TAR_I2C_INST);
     DL_I2C_setTargetTXFIFOThreshold(TAR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
     DL_I2C_setTargetRXFIFOThreshold(TAR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
     DL_I2C_enableTargetTXEmptyOnTXRequest(TAR_I2C_INST);

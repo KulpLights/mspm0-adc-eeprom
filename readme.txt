@@ -1,7 +1,7 @@
 ================================================================================
 Processor Companion Utility (PCU) Software - MSPM0
 Copyright (c) 2024, Texas Instruments Incorporated
-Revision 0.1 - 2024 February 26
+Revision 0.11 - 2024 April 14
 ================================================================================
 
 This package contains the source and build scripts for the
@@ -88,7 +88,46 @@ PCU software package.  The general use model is that these tests are C apps
 that may be compiled and run on an Arm Cortex-A target running Linux.
 
 ================================================================================
+Integration with embedded Linux 
+================================================================================
+
+Example device tree overlay source (.dts) for EEPROM, in this case on I2C-2:
+--------------------------------------------------------------------------------
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target = <&i2c2>;
+		__overlay__ {
+			status = "okay";
+			clock-frequency = <100000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			
+			eeprom: eeprom@50 {
+				compatible = "24c32";
+				reg = <0x50>;
+			};
+		};
+	};
+};
+--------------------------------------------------------------------------------
+
+================================================================================
 License
 ================================================================================
 
 This software is provided "as is" under the BSD-3-Clause license.
+
+================================================================================
+Change log
+================================================================================
+
+v0.1 - 2024-FEB-26
+Initial release with 1kB at24c compatible EEPROM, no ADC
+
+v0.11 - 2024-APR-14
+Refactoring of I2C target driver to facilitate responding to two different
+I2C target addresses (this will be needed to enable having EEPROM and ADC
+functions coexisting on the same I2C bus).
