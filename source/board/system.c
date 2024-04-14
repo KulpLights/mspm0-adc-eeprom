@@ -42,6 +42,7 @@
 #include "ti_msp_dl_config.h"
 #include "communication/i2c_tar_driver.h"
 #include "emulation/at24_emulation.h"
+#include "emulation/ad7291_emulation.h"
 #include "system.h"
 
 /*!
@@ -52,7 +53,7 @@
  * at least the size of one page (to support page writes), plus an
  * additional two bytes for the address.
  */
-#define TAR_I2C_RXBUF_LEN 34
+#define TAR_I2C_RXBUF_LEN 128
 
 /*!
  * @brief   Length of the I2C transmit buffer in bytes
@@ -60,7 +61,7 @@
  * This is the # of bytes which may be transmitted at once before another
  * callback is issued from the I2C target driver to this library.
  */
-#define TAR_I2C_TXBUF_LEN 4
+#define TAR_I2C_TXBUF_LEN 128
 
 /**
  * @brief   I2C target driver RX buffer
@@ -85,8 +86,8 @@ i2c_tar_driver_t tar_i2c =
     .txBufLen = TAR_I2C_TXBUF_LEN,
     .rxCallback = &at24_i2c_rx_callback,
     .txCallback = &at24_i2c_tx_callback,
-    .rxCallback2 = I2C_TAR_DRIVER_NO_CALLBACK,
-    .txCallback2 = I2C_TAR_DRIVER_NO_CALLBACK
+    .rxCallback2 = &ad7291_i2c_rx_callback,
+    .txCallback2 = &ad7291_i2c_tx_callback
 };
 
 /*!
@@ -147,6 +148,11 @@ void System_init(void)
         tar_i2c.rxCallback = I2C_TAR_DRIVER_NO_CALLBACK;
         tar_i2c.txCallback = I2C_TAR_DRIVER_NO_CALLBACK;
     }
+
+    /* Start the ADC emulation module to ensure it is online before starting
+     * the I2C target driver
+     */
+    ad7291_open(&tar_i2c);
 
     /* Temporarily leave peripheral SPI disabled until we add that functionality */
     DL_SPI_disable(PER_SPI_INST);

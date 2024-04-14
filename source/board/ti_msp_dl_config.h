@@ -125,6 +125,18 @@ extern "C" {
 
 
 
+/* Defines for ADC */
+#define ADC_INST                                                            ADC0
+#define ADC_INST_IRQHandler                                      ADC0_IRQHandler
+#define ADC_INST_INT_IRQN                                        (ADC0_INT_IRQn)
+#define ADC_ADCMEM_AD7291_EMU_MEM                             DL_ADC12_MEM_IDX_0
+#define ADC_ADCMEM_AD7291_EMU_MEM_REF            DL_ADC12_REFERENCE_VOLTAGE_VDDA
+#define ADC_ADCMEM_AD7291_EMU_MEM_REF_VOLTAGE                                      -1 // VDDA cannot be determined
+#define GPIO_ADC_C1_PORT                                                   GPIOA
+#define GPIO_ADC_C1_PIN                                           DL_GPIO_PIN_26
+
+
+
 /* Port definition for Pin Group MCU_GPIO */
 #define MCU_GPIO_PORT                                                    (GPIOA)
 
@@ -148,6 +160,7 @@ void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_WAKEUP_TIMER_init(void);
 void SYSCFG_DL_TAR_I2C_init(void);
 void SYSCFG_DL_PER_SPI_init(void);
+void SYSCFG_DL_ADC_init(void);
 
 void SYSCFG_DL_WWDT0_init(void);
 

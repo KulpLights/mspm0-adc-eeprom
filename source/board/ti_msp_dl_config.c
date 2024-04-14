@@ -54,6 +54,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_WAKEUP_TIMER_init();
     SYSCFG_DL_TAR_I2C_init();
     SYSCFG_DL_PER_SPI_init();
+    SYSCFG_DL_ADC_init();
     SYSCFG_DL_WWDT0_init();
 }
 
@@ -63,12 +64,14 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_TimerG_reset(WAKEUP_TIMER_INST);
     DL_I2C_reset(TAR_I2C_INST);
     DL_SPI_reset(PER_SPI_INST);
+    DL_ADC12_reset(ADC_INST);
     DL_WWDT_reset(WWDT0_INST);
 
     DL_GPIO_enablePower(GPIOA);
     DL_TimerG_enablePower(WAKEUP_TIMER_INST);
     DL_I2C_enablePower(TAR_I2C_INST);
     DL_SPI_enablePower(PER_SPI_INST);
+    DL_ADC12_enablePower(ADC_INST);
     DL_WWDT_enablePower(WWDT0_INST);
     delay_cycles(POWER_STARTUP_DELAY);
 }
@@ -211,6 +214,23 @@ SYSCONFIG_WEAK void SYSCFG_DL_PER_SPI_init(void) {
 
     /* Enable module */
     DL_SPI_enable(PER_SPI_INST);
+}
+
+/* ADC Initialization */
+static const DL_ADC12_ClockConfig gADCClockConfig = {
+    .clockSel       = DL_ADC12_CLOCK_SYSOSC,
+    .divideRatio    = DL_ADC12_CLOCK_DIVIDE_1,
+    .freqRange      = DL_ADC12_CLOCK_FREQ_RANGE_24_TO_32,
+};
+SYSCONFIG_WEAK void SYSCFG_DL_ADC_init(void)
+{
+    DL_ADC12_setClockConfig(ADC_INST, (DL_ADC12_ClockConfig *) &gADCClockConfig);
+    DL_ADC12_configConversionMem(ADC_INST, ADC_ADCMEM_AD7291_EMU_MEM,
+        DL_ADC12_INPUT_CHAN_1, DL_ADC12_REFERENCE_VOLTAGE_VDDA, DL_ADC12_SAMPLE_TIMER_SOURCE_SCOMP0, DL_ADC12_AVERAGING_MODE_DISABLED,
+        DL_ADC12_BURN_OUT_SOURCE_DISABLED, DL_ADC12_TRIGGER_MODE_AUTO_NEXT, DL_ADC12_WINDOWS_COMP_MODE_DISABLED);
+    DL_ADC12_setPowerDownMode(ADC_INST,DL_ADC12_POWER_DOWN_MODE_MANUAL);
+    DL_ADC12_setSampleTime0(ADC_INST,143);
+    DL_ADC12_enableConversions(ADC_INST);
 }
 
 SYSCONFIG_WEAK void SYSCFG_DL_WWDT0_init(void)

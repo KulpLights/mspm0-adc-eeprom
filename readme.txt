@@ -1,7 +1,7 @@
 ================================================================================
 Processor Companion Utility (PCU) Software - MSPM0
 Copyright (c) 2024, Texas Instruments Incorporated
-Revision 0.11 - 2024 April 14
+Revision 0.12 - 2024 April 14
 ================================================================================
 
 This package contains the source and build scripts for the
@@ -114,6 +114,43 @@ Example device tree overlay source (.dts) for EEPROM, in this case on I2C-2:
 };
 --------------------------------------------------------------------------------
 
+Example device tree overlay source (.dts) for ADC, in this case on I2C-2:
+--------------------------------------------------------------------------------
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			adc_vref: fixedregulator@0 {
+				compatible = "regulator-fixed";
+				regulator-name = "fixed-supply";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&i2c2>;
+		__overlay__ {
+			status = "okay";
+			clock-frequency = <100000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			
+			ad7291: adc@20 {
+				compatible = "adi,ad7291";
+				reg = <0x20>;
+				vref-supply = <&adc_vref>;
+			};
+		};
+	};
+};
+--------------------------------------------------------------------------------
+
 ================================================================================
 License
 ================================================================================
@@ -131,3 +168,9 @@ v0.11 - 2024-APR-14
 Refactoring of I2C target driver to facilitate responding to two different
 I2C target addresses (this will be needed to enable having EEPROM and ADC
 functions coexisting on the same I2C bus).
+
+v0.12 - 2024-APR-14
+Adding 8-ch 12-bit ADC functionality over I2C bus (address 0x20),
+compatible with ad7291 Linux IIO ADC driver.  Not all AD7291
+functionality is supported (see limitations) but raw measurements
+are functional.
