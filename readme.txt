@@ -1,7 +1,7 @@
 ================================================================================
 Processor Companion Utility (PCU) Software - MSPM0
 Copyright (c) 2024, Texas Instruments Incorporated
-Revision 0.12 - 2024 April 14
+Revision 0.13 - 2024 April 14
 ================================================================================
 
 This package contains the source and build scripts for the
@@ -23,7 +23,7 @@ Currently implemented functions
 
 EEPROM emulation (AT24C I2C EEPROM compatible)
  - Available at I2C address 0x50
- - 1kB (8kbit) memory
+ - 4kB (32kbit) memory
  - 32B page write size
 
 ================================================================================
@@ -114,6 +114,11 @@ Example device tree overlay source (.dts) for EEPROM, in this case on I2C-2:
 };
 --------------------------------------------------------------------------------
 
+Example u-boot kernel command line parameter to allow for longer write timeouts:
+--------------------------------------------------------------------------------
+at24.write_timeout=1000
+--------------------------------------------------------------------------------
+
 Example device tree overlay source (.dts) for ADC, in this case on I2C-2:
 --------------------------------------------------------------------------------
 /dts-v1/;
@@ -174,3 +179,16 @@ Adding 8-ch 12-bit ADC functionality over I2C bus (address 0x20),
 compatible with ad7291 Linux IIO ADC driver.  Not all AD7291
 functionality is supported (see limitations) but raw measurements
 are functional.
+
+v0.13 - 2024-APR-14
+Increasing EEPROM size from 1kB (8kbit) to 4kB (32kbit) at expense
+of slightly longer write times in cases where many writes have been
+committed to the EEPROM and EEPROM emulation pages need to be swapped.
+The benefit of this change is achieving full compatibility with the 
+at24c32 driver.  With only 1kB, use of 24c32 would cause sysfs reads
+to deliver the EEPROM contents 4 times (reading 1kB back 4 times
+because the Linux driver thinks it is working with a 4kB memory).
+Right now this seems like the better trade-off.  To counteract the
+longer write times after extensive EEPROM usage, it is recommended
+to set at24.write_timeout=1000 at the kernel command line (can
+be done via uEnv.txt).

@@ -48,7 +48,7 @@
 #define TEST__I2C_TAR_ADDR 0x50
 
 // EEPROM size of target device (DUT)
-#define TEST__EEPROM_TOTAL_SIZE 1024
+#define TEST__EEPROM_TOTAL_SIZE 4096
 
 // EEPROM page size of target device (DUT)
 #define TEST__EEPROM_PAGE_SIZE 32
@@ -61,6 +61,6 @@
 #define TEST__EEPROM_WRITE_DELAY 10000
 
 // EEPROM write re-try count
-#define TEST__EEPROM_RETRY_CNT 10
+#define TEST__EEPROM_RETRY_CNT 100
 
 #endif /* __AT24_TEST_CONFIG_H__ */

@@ -47,7 +47,7 @@
  *  Device Configuration: SysConfig managed
  *
  *  The utilities which are currently enabled within this project include:
- *      (1) Emulated I2C EEPROM with 1kB (8kbit) data storage capability and
+ *      (1) Emulated I2C EEPROM with 4kB (32kbit) data storage capability and
  *          command compatibility with AT24x style devices (32-byte page writes)
  *      (2) Emulated I2C ADC with 8 channels, 12-bit resolution, supply voltage
  *          reference, compatible with Linux IIO AD7291 device driver
