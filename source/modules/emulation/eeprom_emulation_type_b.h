@@ -72,11 +72,11 @@
 /*!
  * @brief The number of groups to use
  */
-#define EEPROM_EMULATION_GROUP_ACCOUNT                                       (3)
+#define EEPROM_EMULATION_GROUP_ACCOUNT                                       (2)
 /*!
  * @brief The number of sectors in groups to use
  */
-#define EEPROM_EMULATION_SECTOR_INGROUP_ACCOUNT                              (3)
+#define EEPROM_EMULATION_SECTOR_INGROUP_ACCOUNT                              (9)
 /*!
  * @brief Enable or disable repair
  */

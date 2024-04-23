@@ -42,29 +42,6 @@
 #include <ti/devices/msp/msp.h>
 #include "at24_emulation.h"
 
-/*!
- * @brief   Length of the I2C receive buffer in bytes
- *
- * This is the maximum number of bytes which can be received by the AT24
- * EEPROM emulation library via I2C(receive implies the scenario where an I2C
- * bus controller external to this device is attempting to write into our
- * emulated EEPROM space).  This buffer needs to be at least the size of one
- * page (to support page writes) plus two bytes for the address. It does
- * not need to be any larger than this.
- */
-#define AT24_I2C_RXBUF_LEN (AT24_EMU_PAGE_TOT_BYTES + 2)
-
-/*!
- * @brief   Length of the I2C transmit buffer in bytes
- *
- * This is the # of bytes which may be transmit at once before another callback
- * is issued from the I2C target driver to this library.  In this case, we are
- * using the TI Type-B EEPROM emulation item size of four bytes, as this is
- * convenient for processing because we look up values in the Type-B EEPROM
- * space at this granularity.
- */
-#define AT24_I2C_TXBUF_LEN 4
-
 /**
  * @brief   Item data union to enable easy access at 32-bit word level or
  *          at the 8-bit byte level for one Type-B EEPROM data item.
@@ -86,16 +63,6 @@ typedef union
 } at24_eeprom_emu_item_pdata;
 
 /**
- * @brief   I2C target driver RX buffer
- */
-uint8_t at24_i2c_rxbuf[AT24_I2C_RXBUF_LEN];
-
-/**
- * @brief   I2C target driver TX buffer
- */
-uint8_t at24_i2c_txbuf[AT24_I2C_TXBUF_LEN];
-
-/**
  * @brief   I2C EEPROM emulation page buffer
  */
 at24_eeprom_emu_item_pdata at24_pagebuf;
@@ -104,6 +71,12 @@ at24_eeprom_emu_item_pdata at24_pagebuf;
  * @brief   I2C EEPROM emulation EEPROM address space RW head pointer
  */
 uint16_t at24_rw_addr;
+
+/**
+ * @brief   I2C target driver to use for read/write operations
+ *          when handling callbacks
+ */
+i2c_tar_driver_t *at24_i2c_tar_driver_handle;
 
 /**
  *  @brief      Get the item at itemIndex from the EEPROM area
@@ -129,38 +102,6 @@ __STATIC_INLINE uint32_t at24_eeprom_emu_read(uint16_t itemIndex);
 __STATIC_INLINE void at24_eeprom_emu_write(uint16_t itemIndex, uint32_t data);
 
 /**
- *  @brief      I2C target receive callback handler
- *
- *  This callback function is connected to the I2C target driver.
- *  It is responsible for handling incoming I2C data to this module from an
- *  external I2C bus controller (this is the scenario of an I2C bus write).
- *
- *  @param      bytes is the number of bytes received for processing
- *
- *  @param      trig indicates if we got this data after a RESTART
- *              or a STOP condition on the I2C bus
- *
- *  @return    none
- *
- */
-static void at24_i2c_rx_callback(uint32_t bytes, \
-    i2c_tar_driver_call_trig_t trig);
-
-/**
- *  @brief      I2C target transmit callback handler
- *
- *  This callback function is connected to the I2C target driver.
- *  It is responsible for handling outbound I2C data from this module to an
- *  external I2C bus controller (this is the scenario of an I2C bus read).
- *
- *  @param      none
- *
- *  @return    none
- *
- */
-static void at24_i2c_tx_callback(void);
-
-/**
  *  @brief      Handle Type-B EEPROM emulation garbage collection
  *
  *  This function needs to be called after writes to emulated EEPROM.
@@ -180,26 +121,14 @@ static void at24_i2c_tx_callback(void);
 static void at24_garbageCollection(void);
 
 /**
- * The I2C target driver data structure instance for the I2C I/F we
- * are using for communication with external I2C bus controllers
- */
-i2c_tar_driver_t at24_i2c =
-{
-    .pRxBuf = &at24_i2c_rxbuf[0],
-    .rxBufLen = AT24_I2C_RXBUF_LEN,
-    .pTxBuf = &at24_i2c_txbuf[0],
-    .txBufLen = AT24_I2C_TXBUF_LEN,
-    .rxCallback = &at24_i2c_rx_callback,
-    .txCallback = &at24_i2c_tx_callback
-};
-
-/**
- * Standard function implementations (open, close)
+ * Standard function implementations
  */
 
-uint32_t at24_open(I2C_Regs *pModule)
+uint32_t at24_open(i2c_tar_driver_t *pI2CTarDriverInst)
 {
     uint32_t eepromState;
+
+    at24_i2c_tar_driver_handle = pI2CTarDriverInst;
 
     __disable_irq();
     eepromState = EEPROM_TypeB_init();
@@ -212,16 +141,8 @@ uint32_t at24_open(I2C_Regs *pModule)
     }
 
     at24_rw_addr = 0x0000;
-    at24_i2c.pModule = pModule;
-    I2CTarDriver_open(&at24_i2c);
 
     return 0;
-}
-
-void at24_close(void)
-{
-    while (I2CTarDriver_getState(&at24_i2c) != I2C_TAR_DRV_STATE__IDLE);
-    I2CTarDriver_close(&at24_i2c);
 }
 
 void at24_garbageCollection(void)
@@ -279,8 +200,10 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
     /* Update the R/W byte address with the first two bytes received.
      * Ensure the address is bound within 0 to AT24_EMU_TOT_BYTES-1 by
      * rolling over any inputs to be within this range. */
-    at24_rw_addr = (uint16_t)(I2CTarDriver_read(&at24_i2c)) << 8;
-    at24_rw_addr = at24_rw_addr | (uint16_t)(I2CTarDriver_read(&at24_i2c));
+    at24_rw_addr = (uint16_t)(I2CTarDriver_read( \
+        at24_i2c_tar_driver_handle)) << 8;
+    at24_rw_addr = at24_rw_addr | (uint16_t)(I2CTarDriver_read( \
+        at24_i2c_tar_driver_handle));
     at24_rw_addr %= AT24_EMU_TOT_BYTES;
     bytes -= 2;
 
@@ -304,7 +227,7 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
         itemIndex = at24_rw_addr >> 2;
         itemOffset = at24_rw_addr % 4;
         itemData.u32 = at24_eeprom_emu_read(itemIndex);
-        itemData.u8[itemOffset] = I2CTarDriver_read(&at24_i2c);
+        itemData.u8[itemOffset] = I2CTarDriver_read(at24_i2c_tar_driver_handle);
         __disable_irq();
         at24_eeprom_emu_write(itemIndex, itemData.u32);
         __enable_irq();
@@ -332,7 +255,8 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
         byteOffset = at24_rw_addr % AT24_EMU_PAGE_TOT_BYTES;
         while(bytes--)
         {
-            at24_pagebuf.u8[byteOffset] = I2CTarDriver_read(&at24_i2c);
+            at24_pagebuf.u8[byteOffset] = I2CTarDriver_read( \
+                at24_i2c_tar_driver_handle);
             byteOffset = (byteOffset + 1) % AT24_EMU_PAGE_TOT_BYTES;
         }
 
@@ -398,7 +322,8 @@ void at24_i2c_tx_callback(void)
     bytes = 4;
     while (bytes--)
     {
-        I2CTarDriver_write(&at24_i2c, at24_pagebuf.u8[itemOffset++]);
+        I2CTarDriver_write(at24_i2c_tar_driver_handle, \
+            at24_pagebuf.u8[itemOffset++]);
     }
 
     /* Increment the RW pointer in EEPROM space and catch any rollover */

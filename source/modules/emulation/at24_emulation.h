@@ -69,6 +69,13 @@
  *      STOP condition is issued, the commit of data to emulated EEPROM (flash)
  *      will begin.  During this time, the device will NAK any I2C START
  *      conditions which are addressed to it until the write runs to completion.
+ *      A workaround is available to prevent a Linux host from attempting
+ *      another operation within this time.  The at24.write_timeout kernel
+ *      parameter may be set to a higher value (e.g. 1000ms) to minimize the
+ *      possibility of a host access timing out due to an EEPROM write function
+ *      taking several hundred ms to complete.  This may be set by adding
+ *      "at24.write_timeout=1000" to the kernel parameters in the U-BOOT
+ *      configuration file (uEnv.txt).
  *
  ******************************************************************************/
 
@@ -87,7 +94,7 @@
  * the TI Type-B EEPROM emulation library header file must be compatible with
  * the size put here.
  */
-#define AT24_EMU_TOT_BYTES 1024
+#define AT24_EMU_TOT_BYTES 4096
 
 /*!
  * @brief Blank data value for unwritten EEPROM addresses
@@ -157,16 +164,17 @@
  *  at start-up before I2C requests from external I2C bus controllers may be
  *  handled by the device.
  *
- *  This function expects that the I2C module base address which is passed
+ *  This function expects that the I2C target driver instance which is passed
  *  has been initialized by the application with the expected configuration
- *  settings and slave address, but that it was left disabled.
+ *  settings and slave address.
  *
  *  This function expects that the application above this layer has configured
  *  the IOMUX to enable I2C communication on the desired pins to the module
  *  whose base address was passed to this function.
  *
- *  Once this function returns, it is possible for external I2C bus controllers
- *  to start reading or writing EEPROM data within the defined address range of
+ *  Once this function returns and the I2C target driver is enabled,
+ *  it is possible for external I2C bus controllers to start
+ *  reading or writing EEPROM data within the defined address range of
  *  0 to AT24_EMU_ITEM_BYTES-1, with writes page-aligned to the
  *  AT24_EMU_PAGE_TOT_BYTES boundary (else roll-over will be observed).
  *
@@ -175,30 +183,44 @@
  *  may be needed, global interrupts are disabled during flash operations to
  *  avoid issues.  The calling application must be aware of this.
  *
- *  @param[in]  pModule is a pointer to the I2C peripheral bas address.
+ *  @param[in]  Pointer to the I2C target driver instance to use.
  *
  *  @return     Zero if the library initialized correctly, else returns
  *              the EEPROM emulation library error code to the calling function.
  *
  */
-extern uint32_t at24_open(I2C_Regs *pModule);
+extern uint32_t at24_open(i2c_tar_driver_t *pI2CTarDriverInst);
 
- /**
-  *  @brief      Close the AT24x EEPROM emulation library
-  *
-  *  Disables the I2C target driver, preventing any further
-  *  I2C communication for EEPROM emulation.
-  *
-  *  Note that this function will block if there is an ongoing I2C
-  *  transaction, and it will wait for that transaction to run
-  *  to completion (I2C target driver state must be idle) before
-  *  it will disable the I2C target driver.
-  *
-  *  @param     none
-  *
-  *  @return    none
-  *
-  */
-extern void at24_close(void);
+/**
+ *  @brief      I2C target receive callback handler
+ *
+ *  This callback function must be connected to the I2C target driver.
+ *  It is responsible for handling incoming I2C data to this module from an
+ *  external I2C bus controller (this is the scenario of an I2C bus write).
+ *
+ *  @param      bytes is the number of bytes received for processing
+ *
+ *  @param      trig indicates if we got this data after a RESTART
+ *              or a STOP condition on the I2C bus
+ *
+ *  @return    none
+ *
+ */
+extern void at24_i2c_rx_callback(uint32_t bytes, \
+    i2c_tar_driver_call_trig_t trig);
+
+/**
+ *  @brief      I2C target transmit callback handler
+ *
+ *  This callback function must be connected to the I2C target driver.
+ *  It is responsible for handling outbound I2C data from this module to an
+ *  external I2C bus controller (this is the scenario of an I2C bus read).
+ *
+ *  @param      none
+ *
+ *  @return    none
+ *
+ */
+extern void at24_i2c_tx_callback(void);
 
 #endif /* COMMUNICATION_AT24_EMULATION_H_ */

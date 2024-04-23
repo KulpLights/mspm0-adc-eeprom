@@ -58,13 +58,26 @@
  *  i2c_tar_driver_t pointer passed so that the correct driver instance
  *  is handled.
  *
+ *  This interface supports responding to two I2C target addresses, with
+ *  each address mapping to its own set of transmit and receive callback
+ *  functions, respectively.  If callback functions for transmit are not
+ *  mapped for a given address, 0xFF is sent by default.
+ *
+ *  This interface uses fully interrupt driven I/O.  It does not use DMA.
+ *
  ******************************************************************************/
 
 #ifndef COMMUNICATION_I2C_TAR_DRIVER_H_
 #define COMMUNICATION_I2C_TAR_DRIVER_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <ti/driverlib/dl_i2c.h>
+
+/**
+ * @brief  Value representing no callback function assigned
+ */
+#define I2C_TAR_DRIVER_NO_CALLBACK 0
 
 /**
  * @brief  State definition enum for the I2C target driver.
@@ -124,13 +137,29 @@ typedef struct
     /*! Current pop index for the TX buffer */
     uint32_t txBufPopIdx;
     /*! Function pointer to the RX callback in the
-     * application layer above this driver.
+     * application layer above this driver.  Set to I2C_TAR_DRIVER_NO_CALLBACK
+     * if the first address is not used in the application
      * (must be set by the calling application) */
     void (*rxCallback)(uint32_t bytes, i2c_tar_driver_call_trig_t trig);
     /*! Function pointer to the TX callback in the
-     * application layer above this driver.
+     * application layer above this driver.  Set to I2C_TAR_DRIVER_NO_CALLBACK
+     * if the first address is not used in the application
      * (must be set by the calling application) */
     void (*txCallback)(void);
+    /*! Function pointer to the 2nd RX callback in the
+     * application layer above this driver.  This supports
+     * the second I2C address, and is optional.  Set to
+     * I2C_TAR_DRIVER_NO_CALLBACK if the second address is not used in the
+     * application (must be set by the calling application) */
+    void (*rxCallback2)(uint32_t bytes, i2c_tar_driver_call_trig_t trig);
+    /*! Function pointer to the 2nd TX callback in the
+     * application layer above this driver.  This supports
+     * the second I2C address, and is optional.  Set to
+     * I2C_TAR_DRIVER_NO_CALLBACK if the second address is not used in the
+     * application (must be set by the calling application) */
+    void (*txCallback2)(void);
+    /*!  */
+    bool trxToSecAddr;
 } i2c_tar_driver_t;
 
 /**
