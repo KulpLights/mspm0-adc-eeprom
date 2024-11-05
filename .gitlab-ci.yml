@@ -11,6 +11,7 @@ build-job:
     - wget https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-ayxs93eZNN/3.2.2.LTS/ti_cgt_armllvm_3.2.2.LTS_linux-x64_installer.bin
     - chmod +x ./ti_cgt_armllvm_3.2.2.LTS_linux-x64_installer.bin
     - ./ti_cgt_armllvm_3.2.2.LTS_linux-x64_installer.bin
+    - apt-get install -y libtinfo5
   script:
     - make
 
