@@ -5,7 +5,11 @@ stages:          # List of stages for jobs, and their order of execution
 
 build-job:
   image: $CI_REGISTRY/jkridner/debian-build
+  tag: ["docker-amd64"]
   stage: build
+  before_script:
+    - wget https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-ayxs93eZNN/3.2.2.LTS/ti_cgt_armllvm_3.2.2.LTS_linux-x64_installer.bin
+    - ./ti_cgt_armllvm_3.2.2.LTS_linux-x64_installer.bin
   script:
     - make
 
