@@ -14,6 +14,10 @@ build-job:
     - apt-get install -y libtinfo5
   script:
     - make
+  artifacts:
+    name: "PocketBeagle2-MSMP0-Firmware"
+    paths:
+      - pcu_pocketbeagle2.*
 
 unit-test-job:   # This job runs in the test stage.
   stage: test    # It only starts when the job in the build stage completes successfully.
