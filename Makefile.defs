@@ -7,7 +7,7 @@
 # By default, this is in ~/ti/
 
 #TOOL_DIR = ~/ti/ti-cgt-armllvm_3.2.2.LTS
-TOOL_DIR = /builds/pocketbeagle/mspm0-adc-eeprom/ti-cgt-armllvm_3.2.2.LTS
+TOOL_DIR = $(CURDIR)/ti-cgt-armllvm_3.2.2.LTS
 
 # Shortcuts to tools used in TOOL_DIR
 
