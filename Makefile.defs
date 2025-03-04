@@ -7,7 +7,8 @@
 # By default, this is in ~/ti/
 
 #TOOL_DIR = ~/ti/ti-cgt-armllvm_3.2.2.LTS
-TOOL_DIR = $(CURDIR)/ti-cgt-armllvm_3.2.2.LTS
+# TOOL_DIR = $(CURDIR)/ti-cgt-armllvm_3.2.2.LTS
+TOOL_DIR= /opt/source/ti-cgt-armllvm_4.0.2.LTS
 
 # Shortcuts to tools used in TOOL_DIR
 
@@ -18,7 +19,7 @@ HEX = $(TOOL_DIR)/bin/tiarmhex
 # Project name and device target
 
 PRJ_NAME = pcu_pocketbeagle2
-PRJ_DEVICE = MSPM0L1105
+PRJ_DEVICE = MSPM0L1306
 
 # Tool flags
 

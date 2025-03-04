@@ -68,7 +68,7 @@
 /*!
  * @brief The sector address to use
  */
-#define EEPROM_EMULATION_ADDRESS                                    (0x00003400)
+#define EEPROM_EMULATION_ADDRESS                                    (0x00003800)
 /*!
  * @brief The number of groups to use
  */
@@ -76,7 +76,7 @@
 /*!
  * @brief The number of sectors in groups to use
  */
-#define EEPROM_EMULATION_SECTOR_INGROUP_ACCOUNT                              (9)
+#define EEPROM_EMULATION_SECTOR_INGROUP_ACCOUNT                              (17)
 /*!
  * @brief Enable or disable repair
  */
@@ -243,6 +243,8 @@ uint32_t EEPROM_TypeB_writeDataItem(uint16_t identifier, uint32_t data,
  *               groups are full. Refer to @ref EEPROM_TypeB_eraseGroup.
  */
 uint32_t EEPROM_TypeB_transferDataItem(uint16_t groupNum);
+bool EEPROM_TypeB_needToTransferDataItem(uint16_t groupNum);
+
 
 /**
  *  @brief      Read the latest data item based on the identifier

@@ -127,6 +127,64 @@ uint32_t EEPROM_TypeB_writeDataItem(uint16_t Identifier, uint32_t Data,
     return EEPROM_EMULATION_WRITE_OK;
 }
 
+bool EEPROM_TypeB_needToTransferDataItem(uint16_t GroupNum) {
+    uint32_t TransferGroupAddress;
+    uint32_t TransferDataItemAddress;
+    uint32_t checkDataItemAddress;
+    uint32_t* TransferDataItemPointer;
+    uint32_t* checkDataItemPointer;
+    uint32_t TransferDataItemHeader;
+    uint32_t checkDataItemHeader;
+    uint16_t TransferIdentifier;
+    uint16_t checkIdentifier;
+    uint32_t TransferData;
+    uint16_t DataItemCount;
+    uint16_t checkItemCount;
+    uint16_t ReceivingDataItemNum = 0xFFFF;
+
+
+    /* Set variables for transfer group */
+    TransferGroupAddress =
+        EEPROM_EMULATION_ADDRESS +
+        EEPROM_EMULATION_SECTOR_INGROUP_ACCOUNT * (GroupNum - 1) * 1024;
+    TransferDataItemAddress =
+        TransferGroupAddress + (EEPROM_EMULATION_DATAITEM_ACCOUNT - 1) * 8 + 8;
+
+    DataItemCount = EEPROM_EMULATION_DATAITEM_ACCOUNT;
+    while (DataItemCount > 0) {
+        TransferDataItemPointer = (void*) TransferDataItemAddress;
+        TransferDataItemHeader  = *TransferDataItemPointer;
+        /* check if end of write flag is set */
+        if ((TransferDataItemHeader & 0xffff0000) == 0x00000000) {
+            if (ReceivingDataItemNum == 0xFFFF) {
+                ReceivingDataItemNum = DataItemCount + 1;
+            }
+            TransferIdentifier = (uint16_t) TransferDataItemHeader;
+
+            checkItemCount = DataItemCount - 1;
+            checkDataItemAddress = TransferDataItemAddress - 8;
+            while (checkItemCount > 0) {
+                checkDataItemPointer = (void*) checkDataItemAddress;
+                checkDataItemHeader  = *checkDataItemPointer;
+                checkIdentifier = (uint16_t) checkDataItemHeader;
+                if (checkIdentifier == TransferIdentifier) {
+                    // we have a duplicate, we need to copy/cleanup
+                    return true;
+                }
+                checkDataItemAddress -= 8;
+                checkItemCount--;
+            }
+        }
+        TransferDataItemAddress -= 8;
+        DataItemCount--;
+    }
+    // got all the way here without a duplicate ID.   We don't need to transfer anything
+    gActiveDataItemNum = ReceivingDataItemNum;
+    gActiveGroupNum    = GroupNum;
+    return false;
+}
+
+
 uint32_t EEPROM_TypeB_transferDataItem(uint16_t GroupNum)
 {
     uint32_t TransferGroupAddress;
@@ -311,15 +369,16 @@ uint32_t EEPROM_TypeB_init(void)
         if (FlashAPIState == false) return EEPROM_EMULATION_INIT_ERROR;
 
         /* Transfer the current group */
-        EEPROMEmulationState = EEPROM_TypeB_transferDataItem(gActiveGroupNum);
-        if (EEPROMEmulationState != EEPROM_EMULATION_TRANSFER_OK) {
-            return EEPROM_EMULATION_TRANSFER_ERROR;
+        if (EEPROM_TypeB_needToTransferDataItem(gActiveGroupNum)) {
+            EEPROMEmulationState = EEPROM_TypeB_transferDataItem(gActiveGroupNum);
+            if (EEPROMEmulationState != EEPROM_EMULATION_TRANSFER_OK) {
+                return EEPROM_EMULATION_TRANSFER_ERROR;
+            }    
         }
-
         /* Erase last group */
         FlashAPIState = EEPROM_TypeB_eraseGroup();
         if (FlashAPIState == false) return EEPROM_EMULATION_INIT_ERROR;
-        gEEPROMTypeBEraseFlag = 0;
+        gEEPROMTypeBEraseFlag = 0;    
         return EEPROM_EMULATION_INIT_OK;
     } else if (FormatCheckState == CHECK_NO_ACTIVE_ONE_ERROR_GROUP &&
                EEPROM_EMULATION_REPAIR_ENABLE) {

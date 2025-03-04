@@ -42,6 +42,9 @@
 #include <ti/devices/msp/msp.h>
 #include "at24_emulation.h"
 
+#define AT24_EMU_MAX_BYTES  32768;
+
+
 /**
  * @brief   Item data union to enable easy access at 32-bit word level or
  *          at the 8-bit byte level for one Type-B EEPROM data item.
@@ -198,13 +201,13 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
     }
 
     /* Update the R/W byte address with the first two bytes received.
-     * Ensure the address is bound within 0 to AT24_EMU_TOT_BYTES-1 by
-     * rolling over any inputs to be within this range. */
+     * Ensure the address is bound within 0 to AT24_EMU_MAX_BYTES-1 
+     */
     at24_rw_addr = (uint16_t)(I2CTarDriver_read( \
         at24_i2c_tar_driver_handle)) << 8;
     at24_rw_addr = at24_rw_addr | (uint16_t)(I2CTarDriver_read( \
         at24_i2c_tar_driver_handle));
-    at24_rw_addr %= AT24_EMU_TOT_BYTES;
+    at24_rw_addr %= AT24_EMU_MAX_BYTES;
     bytes -= 2;
 
     /* If there is no data and this is just an address reception, then we are
@@ -219,7 +222,11 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
     /* Otherwise, take the data written via I2C and store it into emulated
      * EEPROM using the EEPROM write helper function. We will also
      * increment the RW address accordingly and handle the wrap-around case. */
-    if (bytes == 1)
+    if (at24_rw_addr >= AT24_EMU_TOT_BYTES) 
+    {
+        // skip writing, nothing we need to do, not wrapping around
+    } 
+    else if (bytes == 1)
     {
         /* If this is a byte write only, we can do a read-modify-write
         * on just one 4-byte EEPROM data item, and increment the R/W
@@ -231,7 +238,7 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
         __disable_irq();
         at24_eeprom_emu_write(itemIndex, itemData.u32);
         __enable_irq();
-        at24_rw_addr = (at24_rw_addr + 1) % AT24_EMU_TOT_BYTES;
+        at24_rw_addr = (at24_rw_addr + 1) % AT24_EMU_MAX_BYTES;
     }
 
     /* If this is more than a byte write, we have more work to do.
@@ -299,23 +306,28 @@ void at24_i2c_tx_callback(void)
     /* Double check that our RW address pointer (in EEPROM space)
      * is within the EEPROM total area.  Roll it over to EEPROM space if not.
      */
-    at24_rw_addr %= AT24_EMU_TOT_BYTES;
+    at24_rw_addr %= AT24_EMU_MAX_BYTES;
+    if (at24_rw_addr < AT24_EMU_TOT_BYTES) {
+        /* Get the item containing the first byte to transmit. */
+        itemIndex = at24_rw_addr >> 2;
+        itemOffset = at24_rw_addr % 4;
+        at24_pagebuf.u32[0] = at24_eeprom_emu_read(itemIndex);
 
-    /* Get the item containing the first byte to transmit. */
-    itemIndex = at24_rw_addr >> 2;
-    itemOffset = at24_rw_addr % 4;
-    at24_pagebuf.u32[0] = at24_eeprom_emu_read(itemIndex);
-
-    /* If the first byte is not aligned to an item boundary, get the next byte
-     * so that we can send 4 sequential byte starting from the request */
-    if (itemOffset != 0)
-    {
-        itemIndex++;
-        if (itemIndex >= AT24_EMU_TOT_ITEMS)
+        /* If the first byte is not aligned to an item boundary, get the next byte
+        * so that we can send 4 sequential byte starting from the request */
+        if (itemOffset != 0)
         {
-            itemIndex = 0;
+            itemIndex++;
+            if (itemIndex >= AT24_EMU_TOT_ITEMS) {
+                at24_pagebuf.u32[1] = AT24_EMU_MEM_BLANK;
+            } else {
+                at24_pagebuf.u32[1] = at24_eeprom_emu_read(itemIndex);
+            }
         }
-        at24_pagebuf.u32[1] = at24_eeprom_emu_read(itemIndex);
+    } else {
+        /* If the RW address is out of bounds, send 0xFF */
+        at24_pagebuf.u32[0] = AT24_EMU_MEM_BLANK;
+        at24_pagebuf.u32[1] = AT24_EMU_MEM_BLANK;
     }
 
     /* Write the bytes to the I2C target driver for transmission */
@@ -328,5 +340,5 @@ void at24_i2c_tx_callback(void)
 
     /* Increment the RW pointer in EEPROM space and catch any rollover */
     at24_rw_addr += 4;
-    at24_rw_addr %= AT24_EMU_TOT_BYTES;
+    at24_rw_addr %= AT24_EMU_MAX_BYTES;
 }

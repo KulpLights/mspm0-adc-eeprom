@@ -36,8 +36,8 @@
 
 MEMORY
 {
-    FLASH           (RX)  : origin = 0x00000000, length = 0x000033FF
-    EEPROM_AREA     (RX)  : origin = 0x00003400, length = 0x00004800
+    FLASH           (RX)  : origin = 0x00000000, length = 0x000037FF
+    EEPROM_AREA     (RX)  : origin = 0x00003800, length = 0x0000C800
     SRAM            (RWX) : origin = 0x20000000, length = 0x00001000
     BCR_CONFIG      (R)   : origin = 0x41C00000, length = 0x00000080
     BSL_CONFIG      (R)   : origin = 0x41C00100, length = 0x00000080

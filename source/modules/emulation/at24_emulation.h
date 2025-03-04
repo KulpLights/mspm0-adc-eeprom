@@ -94,7 +94,7 @@
  * the TI Type-B EEPROM emulation library header file must be compatible with
  * the size put here.
  */
-#define AT24_EMU_TOT_BYTES 4096
+#define AT24_EMU_TOT_BYTES 4096*2
 
 /*!
  * @brief Blank data value for unwritten EEPROM addresses

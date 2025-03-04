@@ -32,12 +32,16 @@ OUT_FILE = $(PRJ_NAME).out
 TXT_FILE = $(PRJ_NAME).txt
 MAP_FILE = $(PRJ_NAME).map
 
-all : $(TXT_FILE)
+flasher/flasher : flasher/flasher.cpp
+	$(CXX) -I/opt/fpp/src -o flasher/flasher flasher/flasher.cpp  -L/opt/fpp/src -Wl,-rpath=/opt/fpp/src:. -lfpp
+
+all : $(TXT_FILE) flasher/flasher
 	@echo " TI-TXT image at " $(TXT_FILE)
 	@echo " Out file at " $(OUT_FILE)
 	@echo " Linker map file at " $(MAP_FILE)
 	@echo " Removing object files..."
 	@rm $(shell find . -name '*.o')
+	@cp $(TXT_FILE) ../msp-m0-python-flasher/firmware.txt
 	@echo "Done."
 
 $(TXT_FILE) : $(OUT_FILE)
@@ -51,6 +55,7 @@ $(OBJECTS) : $(SOURCES) $(INCLUDE_DEPS)
 
 .PHONY clean :
 	@echo " Cleaning..."
+	@rm -f flasher/flasher
 	@rm -f $(OUT_FILE) $(MAP_FILE) $(TXT_FILE)
 	@rm -f $(shell find . -name '*.o')
 	@echo "Done."
