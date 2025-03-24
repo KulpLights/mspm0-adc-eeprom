@@ -169,6 +169,7 @@ bool uploadEEProm(I2CUtils &i2c, const std::string &fname) {
         printf("Failed to read eeprom file\n");
         return false;
     }
+    close(file);
     bytes.reserve(bytes.size() + len * 2);
     uint32_t index = 0;
     uint8_t *iptr = (uint8_t*)&index;
@@ -180,27 +181,48 @@ bool uploadEEProm(I2CUtils &i2c, const std::string &fname) {
         bytes.push_back(buffer[x + 2]);
         bytes.push_back(buffer[x + 3]);
     }
-    uint32_t address = 0x00003800;
+    uint32_t address = 0x00004000;
     if (!packAndFlash(i2c, address, bytes)) {
         return false;
     }
     return true;
 }
+
+bool uploadImage(I2CUtils &i2c, const std::string &fname) {
+    int file = open(fname.c_str(), O_RDONLY);
+    if (file < 0) {
+        printf("Failed to open vendor image file\n");
+        return false;
+    }
+    std::vector<uint8_t> buffer;
+    buffer.resize(1024);
+    memset(&buffer[0], 0xFF, 1024);
+    read(file, &buffer[0], 1024);
+    close(file);
+    uint32_t address = 0x0000F000;
+    return packAndFlash(i2c, address, buffer);
+}
 int main(int argc, char **argv) {
     PinCapabilities::InitGPIO("mp0-flasher", new BBBPinProvider());
 
     if (argc < 4) {
-        printf("Usage: %s <nrst pin> <binvoke pin> <firmware file> <eeprom file>\n", argv[0]);
+        printf("Usage: %s [-nv] <nrst pin> <binvoke pin> <firmware file> [<eeprom file>]\n", argv[0]);
         return 1;
     }
 
     for (int x = 0; x < argc; x++) {
         printf("argv[%d]: %s\n", x, argv[x]);
     }
-    std::string nrst = argv[1];
-    std::string binvoke = argv[2];
-    std::string fname = argv[3];
-    std::string eeprom = argv[4];
+    int argidx = 1;
+    bool uploadVendor = true;
+    if (strcmp(argv[argidx], "-nv") == 0) {
+        argidx++;
+        uploadVendor = false;
+    }
+    std::string nrst = argv[argidx++];
+    std::string binvoke = argv[argidx++];
+    std::string fname = argv[argidx++];
+    std::string eeprom = (argc == (argidx + 1)) ? argv[argidx++] : "";
 
     I2CUtils i2c(2, 0x48);
 
@@ -253,7 +275,15 @@ int main(int argc, char **argv) {
 
     uploadFirmware(i2c, fname);
 
-    uploadEEProm(i2c, eeprom);
+    if (eeprom != "") {
+        printf("Uploading eeprom\n");
+        uploadEEProm(i2c, eeprom);
+    }
+
+    if (uploadVendor) { 
+        printf("Uploading vendor boot image\n");
+        uploadImage(i2c, "vendor-image.bin");
+    }
 
     printf("Cleaning Up...\n");
     nrstPin.setValue(0);

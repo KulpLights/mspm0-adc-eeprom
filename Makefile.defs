@@ -16,9 +16,8 @@ TOOL_LIBS = $(TOOL_DIR)/lib
 CC = $(TOOL_DIR)/bin/tiarmclang
 HEX = $(TOOL_DIR)/bin/tiarmhex
 
-# Project name and device target
+# Device target
 
-PRJ_NAME = pcu_pocketbeagle2
 PRJ_DEVICE = MSPM0L1306
 
 # Tool flags
@@ -32,7 +31,6 @@ LFLAGS = -D__$(PRJ_DEVICE)__
 LFLAGS += -march=thumbv6m -mcpu=cortex-m0plus
 LFLAGS += -mfloat-abi=soft -mlittle-endian -mthumb
 LFLAGS += -O3 -gdwarf-3
-LFLAGS += -Wl,-m$(MAP_FILE)
 LFLAGS += -Wl,-i$(TOOL_LIBS)
 LFLAGS += -Wl,--diag_wrap=off -Wl,--display_error_number
 LFLAGS += -Wl,--warn_sections -Wl,--rom_model

@@ -28,34 +28,51 @@ SDK_LIBS = $(SDK_DIR)/ti/driverlib/lib/ticlang/m0p/mspm0l11xx_l13xx/driverlib.a
 LIBS = $(SDK_LIBS)
 
 LINKER_CMD_FILE = $(BRD_DIR)/linker.cmd
-OUT_FILE = $(PRJ_NAME).out
-TXT_FILE = $(PRJ_NAME).txt
-MAP_FILE = $(PRJ_NAME).map
+
+
+ADC_EEPROM_NAME = mspm0-adc-eeprom
+ADC_EEPROM_OUT_FILE = $(ADC_EEPROM_NAME).out
+ADC_EEPROM_TXT_FILE = $(ADC_EEPROM_NAME).txt
+ADC_EEPROM_MAP_FILE = $(ADC_EEPROM_NAME).map
+
+ADC_NAME = mspm0-adc
+ADC_OUT_FILE = $(ADC_NAME).out
+ADC_TXT_FILE = $(ADC_NAME).txt
+ADC_MAP_FILE = $(ADC_NAME).map
 
 flasher/flasher : flasher/flasher.cpp
 	ccache $(CXX) -I/opt/fpp/src -o flasher/flasher flasher/flasher.cpp  -L/opt/fpp/src -Wl,-rpath=/opt/fpp/src:. -lfpp
 
-all : $(TXT_FILE) flasher/flasher
-	@echo " TI-TXT image at " $(TXT_FILE)
-	@echo " Out file at " $(OUT_FILE)
-	@echo " Linker map file at " $(MAP_FILE)
+all : $(ADC_EEPROM_TXT_FILE)  $(ADC_TXT_FILE) flasher/flasher
 	@echo " Removing object files..."
 	@rm $(shell find . -name '*.o')
-	@cp $(TXT_FILE) ../msp-m0-python-flasher/firmware.txt
 	@echo "Done."
 
-$(TXT_FILE) : $(OUT_FILE)
-	$(HEX) $(HEXFLAGS) -o $(TXT_FILE) $(OUT_FILE)
+$(ADC_EEPROM_TXT_FILE) : $(ADC_EEPROM_OUT_FILE)
+	$(HEX) $(HEXFLAGS) -o $(ADC_EEPROM_TXT_FILE) $(ADC_EEPROM_OUT_FILE)
 
-$(OUT_FILE) : $(OBJECTS)
-	$(CC) $(LFLAGS) -o $(OUT_FILE) $(OBJECTS) $(LIBS) -Wl,$(LINKER_CMD_FILE)
+$(ADC_EEPROM_OUT_FILE) : $(OBJECTS) adc-eeprom.o
+	$(CC) $(LFLAGS)  -Wl,-m$(ADC_EEPROM_MAP_FILE) -o $(ADC_EEPROM_OUT_FILE) $(OBJECTS) adc-eeprom.o $(LIBS) -Wl,$(LINKER_CMD_FILE)
+
+$(ADC_TXT_FILE) : $(ADC_OUT_FILE)
+	$(HEX) $(HEXFLAGS) -o $(ADC_TXT_FILE) $(ADC_OUT_FILE)
+
+$(ADC_OUT_FILE) : $(OBJECTS) adc-only.o
+	$(CC) $(LFLAGS)  -Wl,-m$(ADC_MAP_FILE) -o $(ADC_OUT_FILE) $(OBJECTS) adc-only.o $(LIBS) -Wl,$(LINKER_CMD_FILE)
 
 $(OBJECTS) : $(SOURCES) $(INCLUDE_DEPS)
 	$(CC) -c $(CFLAGS) $(INCLUDE_PATHS) $(SOURCES)
 
+adc-only.o : source/app/adc-only.c $(INCLUDE_DEPS)
+	$(CC) -c $(CFLAGS) $(INCLUDE_PATHS) source/app/adc-only.c
+	
+adc-eeprom.o : source/app/adc-eeprom.c $(INCLUDE_DEPS)
+	$(CC) -c $(CFLAGS) $(INCLUDE_PATHS) source/app/adc-eeprom.c
+
 .PHONY clean :
 	@echo " Cleaning..."
 	@rm -f flasher/flasher
-	@rm -f $(OUT_FILE) $(MAP_FILE) $(TXT_FILE)
+	@rm -f $(ADC_OUT_FILE) $(ADC_MAP_FILE) $(ADC_TXT_FILE)
+	@rm -f $(ADC_EEPROM_OUT_FILE) $(ADC_EEPROM_MAP_FILE) $(ADC_EEPROM_TXT_FILE)
 	@rm -f $(shell find . -name '*.o')
 	@echo "Done."

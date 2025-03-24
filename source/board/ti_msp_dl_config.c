@@ -167,6 +167,9 @@ static const DL_I2C_ClockConfig gTAR_I2CClockConfig = {
     .divideRatio = DL_I2C_CLOCK_DIVIDE_1,
 };
 
+extern int setTargetOwnAddress();
+extern int setTargetOwnAddressAlternate();
+
 SYSCONFIG_WEAK void SYSCFG_DL_TAR_I2C_init(void) {
 
     DL_I2C_setClockConfig(TAR_I2C_INST,
@@ -176,9 +179,17 @@ SYSCONFIG_WEAK void SYSCFG_DL_TAR_I2C_init(void) {
     DL_I2C_enableAnalogGlitchFilter(TAR_I2C_INST);
 
     /* Configure Target Mode */
-    DL_I2C_setTargetOwnAddress(TAR_I2C_INST, TAR_I2C_TARGET_OWN_ADDR);
-    DL_I2C_setTargetOwnAddressAlternate(TAR_I2C_INST, TAR_I2C_TARGET_SEC_OWN_ADDR);
-    DL_I2C_enableTargetOwnAddressAlternate(TAR_I2C_INST);
+    int ownAdd = setTargetOwnAddress();
+    int secOwnAdd = setTargetOwnAddressAlternate();
+
+    DL_I2C_setTargetOwnAddress(TAR_I2C_INST, ownAdd);
+    if (secOwnAdd > 0) {
+        DL_I2C_setTargetOwnAddressAlternate(TAR_I2C_INST, secOwnAdd);
+        DL_I2C_enableTargetOwnAddressAlternate(TAR_I2C_INST);    
+    } else {
+        DL_I2C_disableTargetOwnAddressAlternate(TAR_I2C_INST);    
+    }
+
     DL_I2C_setTargetTXFIFOThreshold(TAR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
     DL_I2C_setTargetRXFIFOThreshold(TAR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
     DL_I2C_enableTargetTXEmptyOnTXRequest(TAR_I2C_INST);
