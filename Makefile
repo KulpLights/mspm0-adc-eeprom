@@ -33,7 +33,7 @@ TXT_FILE = $(PRJ_NAME).txt
 MAP_FILE = $(PRJ_NAME).map
 
 flasher/flasher : flasher/flasher.cpp
-	$(CXX) -I/opt/fpp/src -o flasher/flasher flasher/flasher.cpp  -L/opt/fpp/src -Wl,-rpath=/opt/fpp/src:. -lfpp
+	ccache $(CXX) -I/opt/fpp/src -o flasher/flasher flasher/flasher.cpp  -L/opt/fpp/src -Wl,-rpath=/opt/fpp/src:. -lfpp
 
 all : $(TXT_FILE) flasher/flasher
 	@echo " TI-TXT image at " $(TXT_FILE)

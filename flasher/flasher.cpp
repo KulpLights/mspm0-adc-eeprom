@@ -64,11 +64,13 @@ void sendPack(I2CUtils &i2c, const std::vector<uint8_t> &pack) {
     uint8_t *bsptr = (uint8_t*)&checksum;
     std::vector<uint8_t> data = pack;
     data.insert(data.end(), bsptr, bsptr + 4);
+    /*
     printf("Sending ----\n");
     for (int x = 0; x < data.size(); x++) {
         printf("%02X", data[x]);
     }
     printf("\n");
+    */
 
     i2c.writeDevice(&data[0], data.size());
 }
@@ -187,14 +189,22 @@ bool uploadEEProm(I2CUtils &i2c, const std::string &fname) {
 int main(int argc, char **argv) {
     PinCapabilities::InitGPIO("mp0-flasher", new BBBPinProvider());
 
-    std::string nrst = "pca9674-0";
-    std::string binvoke = "pca9674-1";
-    std::string fname = "pcu_pocketbeagle2.txt";
-    std::string eeprom = "eeprom.bin";
+    if (argc < 4) {
+        printf("Usage: %s <nrst pin> <binvoke pin> <firmware file> <eeprom file>\n", argv[0]);
+        return 1;
+    }
+
+    for (int x = 0; x < argc; x++) {
+        printf("argv[%d]: %s\n", x, argv[x]);
+    }
+    std::string nrst = argv[1];
+    std::string binvoke = argv[2];
+    std::string fname = argv[3];
+    std::string eeprom = argv[4];
 
     I2CUtils i2c(2, 0x48);
 
-    printf("\nPB2 MSP M0 Flasher\n");
+    printf("\nMSP M0 Flasher\n");
 
     const PinCapabilities &nrstPin = PinCapabilities::getPinByName(nrst);
     const PinCapabilities &binvokePin = PinCapabilities::getPinByName(binvoke);
