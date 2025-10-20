@@ -243,6 +243,8 @@ uint32_t EEPROM_TypeB_writeDataItem(uint16_t identifier, uint32_t data,
  *               groups are full. Refer to @ref EEPROM_TypeB_eraseGroup.
  */
 uint32_t EEPROM_TypeB_transferDataItem(uint16_t groupNum);
+bool EEPROM_TypeB_needToTransferDataItem(uint16_t groupNum);
+
 
 /**
  *  @brief      Read the latest data item based on the identifier
