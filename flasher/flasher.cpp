@@ -210,9 +210,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    for (int x = 0; x < argc; x++) {
-        printf("argv[%d]: %s\n", x, argv[x]);
-    }
     int argidx = 1;
     bool uploadVendor = true;
     if (strcmp(argv[argidx], "-nv") == 0) {
@@ -272,20 +269,29 @@ int main(int argc, char **argv) {
     } else {
         printf("BSL Mass Erase Success\n");
     }
+    if (fname != "-erase-") {
+        uploadFirmware(i2c, fname);
 
-    uploadFirmware(i2c, fname);
+        if (eeprom != "") {
+            printf("Uploading eeprom\n");
+            uploadEEProm(i2c, eeprom);
+        }
 
-    if (eeprom != "") {
-        printf("Uploading eeprom\n");
-        uploadEEProm(i2c, eeprom);
+        if (uploadVendor) { 
+            printf("Uploading vendor boot image\n");
+            uploadImage(i2c, "vendor-image.dat");
+        }
     }
-
-    if (uploadVendor) { 
-        printf("Uploading vendor boot image\n");
-        uploadImage(i2c, "vendor-image.bin");
-    }
-
     printf("Cleaning Up...\n");
+    nrstPin.setValue(0);
+    binvokePin.setValue(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    printf("RESET M0...\n");
+    nrstPin.setValue(1);
+    binvokePin.setValue(1);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    printf("Another Reset Sequence\n");
     nrstPin.setValue(0);
     binvokePin.setValue(1);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
