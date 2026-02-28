@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
     std::string fname = argv[argidx++];
     std::string eeprom = (argc == (argidx + 1)) ? argv[argidx++] : "";
 
-    I2CUtils i2c(2, 0x48);
+    I2CUtils i2c(2, 0x48, true);
 
     printf("\nMSP M0 Flasher\n");
 
@@ -249,7 +249,10 @@ int main(int argc, char **argv) {
     printf("Reset Released... M0 Entering BSL Mode...\n");
     sendPack(i2c, CONNECTION_PACK);
     if (i2c.readByte() != 0) {
-        printf("BSL Connection Failed\n");
+        sendPack(i2c, CONNECTION_PACK);
+        if (i2c.readByte() != 0) {
+            printf("BSL Connection Failed\n");
+        }
         return 1;
     } else {
         printf("BSL Connection Success\n");
