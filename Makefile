@@ -51,10 +51,7 @@ AD7998_OUT_FILE = $(AD7998_NAME).out
 AD7998_TXT_FILE = $(AD7998_NAME).txt
 AD7998_MAP_FILE = $(AD7998_NAME).map
 
-flasher/flasher : flasher/flasher.cpp
-	ccache $(CXX) -I/opt/fpp/src -o flasher/flasher flasher/flasher.cpp  -L/opt/fpp/src -Wl,-rpath=/opt/fpp/src:. -lfpp
-
-all : $(ADC_EEPROM_TXT_FILE)  $(ADC_TXT_FILE) $(AD7998_EEPROM_TXT_FILE) $(AD7998_TXT_FILE) flasher/flasher
+all : $(ADC_EEPROM_TXT_FILE)  $(ADC_TXT_FILE) $(AD7998_EEPROM_TXT_FILE) $(AD7998_TXT_FILE)
 	@echo " Removing object files..."
 	@rm $(shell find . -name '*.o')
 	@echo "Done."
@@ -100,7 +97,6 @@ adc7998-eeprom.o : source/app/adc-eeprom.c $(INCLUDE_DEPS)
 
 .PHONY clean :
 	@echo " Cleaning..."
-	@rm -f flasher/flasher
 	@rm -f $(ADC_OUT_FILE) $(ADC_MAP_FILE) $(ADC_TXT_FILE)
 	@rm -f $(ADC_EEPROM_OUT_FILE) $(ADC_EEPROM_MAP_FILE) $(ADC_EEPROM_TXT_FILE)
 	@rm -f $(AD7998_OUT_FILE) $(AD7998_MAP_FILE) $(AD7998_TXT_FILE)
