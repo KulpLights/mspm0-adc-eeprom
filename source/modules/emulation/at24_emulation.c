@@ -32,313 +32,447 @@
 
 /*!****************************************************************************
  *  @file       at24_emulation.c
+ *  @brief      Emulation library for at24-style I2C EEPROM
  *
- *  AT24x I2C EEPROM Emulation Library
- *
+ *  See at24_emulation.h for the storage scheme.
  ******************************************************************************/
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <ti/devices/msp/msp.h>
+#include <ti/driverlib/dl_flashctl.h>
+#include <ti/driverlib/dl_i2c.h>
+#include "fw_layout.h"
 #include "at24_emulation.h"
 
-#define AT24_EMU_MAX_BYTES  32768;
+#define AT24_SIZE               FW_EEPROM_DATA_SIZE
+#define AT24_PAGE_SIZE          64
+#define SECTOR_SIZE             FW_FLASH_SECTOR_SIZE
+#define SECTOR_WORDS            (SECTOR_SIZE / 4)
+#define SECTOR_COUNT            (AT24_SIZE / SECTOR_SIZE)
+#define NO_SECTOR               0xFF
 
+/* Flush log: an array of 8 byte records filling the log sector.  Word 0 is
+ * MAGIC << 16 | sector << 8 | state, word 1 the CRC-32 of the scratch
+ * sector.  The state goes from BEGIN to DONE by programming the same word
+ * again, which only clears a bit; the L130x parts have no flash ECC, so that
+ * is allowed.  The log is the L1305's top sector, and the CPU can't read the
+ * last 8 bytes of flash, so the last two records are never used. */
+#define LOG_MAGIC               0xA5C3u
+#define LOG_STATE_BEGIN         0xFEu
+#define LOG_STATE_DONE          0xFCu
+#define LOG_SLOTS               (SECTOR_SIZE / 8 - 2)
 
-/**
- * @brief   Item data union to enable easy access at 32-bit word level or
- *          at the 8-bit byte level for one Type-B EEPROM data item.
+#define ERASED_WORD             0xFFFFFFFFu
+
+#if (AT24_SIZE & (AT24_SIZE - 1)) || (SECTOR_COUNT >= NO_SECTOR)
+#error Unsupported EEPROM size
+#endif
+
+/* RAM copy of one EEPROM sector.  Kept word aligned for flash programming. */
+static uint32_t at24_cacheWords[SECTOR_WORDS];
+#define at24_cache ((uint8_t *)at24_cacheWords)
+static uint8_t at24_cacheSector = NO_SECTOR;
+static bool at24_cacheDirty;
+static volatile uint32_t at24_writeCount;
+static uint32_t at24_serviceWriteCount;
+
+static uint16_t at24_rw_addr;
+
+static i2c_tar_driver_t *at24_i2c_tar_driver_handle;
+
+/*
+ * Flash primitives.  Interrupt handlers run from flash, which can't be read
+ * while a flash command is running, so interrupts are masked for each
+ * command (restoring the caller's mask, so this is safe in an ISR too).
  */
-typedef union
+
+static bool at24_flashErase(uint32_t addr)
 {
-    uint32_t u32;
-    uint8_t u8[4];
-} at24_eeprom_emu_item_data;
+    DL_FLASHCTL_COMMAND_STATUS status;
+    uint32_t primask = __get_PRIMASK();
 
-/**
- * @brief   Item data union to enable easy access at 32-bit word level or
- *          at the 8-bit byte level for 8 Type-B EEPROM data items in a page.
- */
-typedef union
+    __disable_irq();
+    DL_FlashCTL_unprotectSector(FLASHCTL, addr, DL_FLASHCTL_REGION_SELECT_MAIN);
+    status = DL_FlashCTL_eraseMemoryFromRAM(FLASHCTL, addr,
+        DL_FLASHCTL_COMMAND_SIZE_SECTOR);
+    __set_PRIMASK(primask);
+    return status != DL_FLASHCTL_COMMAND_STATUS_FAILED;
+}
+
+static bool at24_flashProgram64(uint32_t addr, const uint32_t *data)
 {
-    uint32_t u32[AT24_EMU_PAGE_TOT_ITEMS];
-    uint8_t u8[AT24_EMU_PAGE_TOT_BYTES];
-} at24_eeprom_emu_item_pdata;
+    DL_FLASHCTL_COMMAND_STATUS status;
+    uint32_t primask = __get_PRIMASK();
 
-/**
- * @brief   I2C EEPROM emulation page buffer
+    __disable_irq();
+    DL_FlashCTL_unprotectSector(FLASHCTL, addr, DL_FLASHCTL_REGION_SELECT_MAIN);
+    status = DL_FlashCTL_programMemoryFromRAM64(FLASHCTL, addr,
+        (uint32_t *)data);
+    __set_PRIMASK(primask);
+    return status != DL_FLASHCTL_COMMAND_STATUS_FAILED;
+}
+
+static const uint32_t *at24_flashWords(uint32_t addr)
+{
+    return (const uint32_t *)addr;
+}
+
+static bool at24_sectorIsBlank(uint32_t addr)
+{
+    const uint32_t *f = at24_flashWords(addr);
+    uint32_t i;
+
+    for (i = 0; i < SECTOR_WORDS; i++)
+    {
+        if (f[i] != ERASED_WORD)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Program a freshly erased sector from RAM, skipping words that stay
+ * erased.  data must be word aligned. */
+static bool at24_programSector(uint32_t addr, const uint32_t *data)
+{
+    uint32_t i;
+
+    for (i = 0; i < SECTOR_WORDS; i += 2)
+    {
+        if (data[i] == ERASED_WORD && data[i + 1] == ERASED_WORD)
+        {
+            continue;
+        }
+        if (!at24_flashProgram64(addr + i * 4, &data[i]))
+        {
+            return false;
+        }
+    }
+    return memcmp((const void *)addr, data, SECTOR_SIZE) == 0;
+}
+
+static uint32_t at24_crc32(const uint8_t *data, uint32_t len)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t i;
+    uint8_t bit;
+
+    for (i = 0; i < len; i++)
+    {
+        crc ^= data[i];
+        for (bit = 0; bit < 8; bit++)
+        {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
+static uint32_t at24_sectorAddr(uint8_t sector)
+{
+    return FW_EEPROM_DATA_ADDR + (uint32_t)sector * SECTOR_SIZE;
+}
+
+/*
+ * Flush log
  */
-at24_eeprom_emu_item_pdata at24_pagebuf;
 
-/**
- * @brief   I2C EEPROM emulation EEPROM address space RW head pointer
+static int32_t at24_logFreeSlot(void)
+{
+    const uint32_t *log = at24_flashWords(FW_EEPROM_LOG_ADDR);
+    int32_t slot;
+
+    for (slot = 0; slot < LOG_SLOTS; slot++)
+    {
+        if (log[slot * 2] == ERASED_WORD && log[slot * 2 + 1] == ERASED_WORD)
+        {
+            return slot;
+        }
+    }
+    return -1;
+}
+
+static bool at24_logWrite(int32_t slot, uint8_t sector, uint8_t state,
+    uint32_t crc)
+{
+    uint32_t rec[2];
+
+    rec[0] = ((uint32_t)LOG_MAGIC << 16) | ((uint32_t)sector << 8) | state;
+    rec[1] = crc;
+    return at24_flashProgram64(FW_EEPROM_LOG_ADDR + slot * 8, rec);
+}
+
+/* Finish a flush that was interrupted by a reset or power loss. */
+static void at24_recover(void)
+{
+    const uint32_t *log = at24_flashWords(FW_EEPROM_LOG_ADDR);
+    uint32_t w0;
+    uint32_t w1;
+    uint32_t i;
+    uint32_t words[2];
+    uint8_t sector;
+    int32_t slot;
+
+    for (slot = 0; slot < LOG_SLOTS; slot++)
+    {
+        w0 = log[slot * 2];
+        w1 = log[slot * 2 + 1];
+        if (w0 == ERASED_WORD && w1 == ERASED_WORD)
+        {
+            break;
+        }
+        if ((w0 >> 16) != LOG_MAGIC || (w0 & 0xFF) != LOG_STATE_BEGIN)
+        {
+            continue;
+        }
+        sector = (w0 >> 8) & 0xFF;
+        if (sector < SECTOR_COUNT && at24_crc32( \
+            (const uint8_t *)FW_EEPROM_SCRATCH_ADDR, SECTOR_SIZE) == w1)
+        {
+            /* The scratch copy is complete: redo the erase and copy. */
+            uint32_t addr = at24_sectorAddr(sector);
+            const uint32_t *scratch = at24_flashWords(FW_EEPROM_SCRATCH_ADDR);
+
+            at24_flashErase(addr);
+            for (i = 0; i < SECTOR_WORDS; i += 2)
+            {
+                words[0] = scratch[i];
+                words[1] = scratch[i + 1];
+                if (words[0] != ERASED_WORD || words[1] != ERASED_WORD)
+                {
+                    at24_flashProgram64(addr + i * 4, words);
+                }
+            }
+        }
+        /* A record whose CRC doesn't match was torn while being written,
+         * before the target was touched; just retire it. */
+        at24_logWrite(slot, sector, LOG_STATE_DONE, w1);
+    }
+}
+
+/*
+ * Sector cache
  */
-uint16_t at24_rw_addr;
 
-/**
- * @brief   I2C target driver to use for read/write operations
- *          when handling callbacks
- */
-i2c_tar_driver_t *at24_i2c_tar_driver_handle;
+/* Write the cached sector back to flash if it has changed. */
+static void at24_flush(void)
+{
+    uint32_t addr;
+    const uint32_t *f;
+    uint32_t i;
+    bool inPlace;
+    int32_t slot;
+    uint32_t crc;
 
-/**
- *  @brief      Get the item at itemIndex from the EEPROM area
- *
- *  @param      itemIndex is index in EEPROM memory for the desired item
- *
- *  @return     The item value (if it was written previously, else
- *              the default unwritten value if it was not previously written
- *
- */
-__STATIC_INLINE uint32_t at24_eeprom_emu_read(uint16_t itemIndex);
+    if (!at24_cacheDirty)
+    {
+        return;
+    }
+    at24_cacheDirty = false;
 
-/**
- *  @brief      Write data to the item at itemIndex in the EEPROM area
- *
- *  @param      itemIndex is index in EEPROM memory for the desired item
- *
- *  @param      data is the data to write to EEPROM memory at itemIndex
- *
- *  @return     none
- *
- */
-__STATIC_INLINE void at24_eeprom_emu_write(uint16_t itemIndex, uint32_t data);
+    addr = at24_sectorAddr(at24_cacheSector);
+    f = at24_flashWords(addr);
+    if (memcmp(f, at24_cacheWords, SECTOR_SIZE) == 0)
+    {
+        return;
+    }
 
-/**
- *  @brief      Handle Type-B EEPROM emulation garbage collection
- *
- *  This function needs to be called after writes to emulated EEPROM.
- *  It is responsible for doing a flash sector erase on sectors which
- *  contain old data and need to be freed to take new data.  Note
- *  that this function will operate on the embedded flash, and so we
- *  need to be careful about what else we are doing at the same time.
- *  To ensure safety, global interrupts will be BLOCKED during any
- *  flash sector erase operations, which may impact other application
- *  activity that is depending on timely interrupts.  Take care.
- *
- *  @param      none
- *
- *  @return    none
- *
- */
-static void at24_garbageCollection(void);
+    /* If every changed flash word is still erased, program those words in
+     * place: no erase, nothing to lose on power failure but the bytes being
+     * written. */
+    inPlace = true;
+    for (i = 0; i < SECTOR_WORDS && inPlace; i += 2)
+    {
+        if ((f[i] != at24_cacheWords[i] || f[i + 1] != at24_cacheWords[i + 1])
+            && (f[i] != ERASED_WORD || f[i + 1] != ERASED_WORD))
+        {
+            inPlace = false;
+        }
+    }
+    if (inPlace)
+    {
+        for (i = 0; i < SECTOR_WORDS; i += 2)
+        {
+            if (f[i] != at24_cacheWords[i] || f[i + 1] != at24_cacheWords[i + 1])
+            {
+                at24_flashProgram64(addr + i * 4, &at24_cacheWords[i]);
+            }
+        }
+        if (memcmp(f, at24_cacheWords, SECTOR_SIZE) == 0)
+        {
+            return;
+        }
+        /* Didn't verify; fall through to a full rewrite */
+    }
 
-/**
- * Standard function implementations
+    /* Full rewrite through the scratch sector */
+    slot = at24_logFreeSlot();
+    if (slot < 0)
+    {
+        /* Every record is done (at24_recover and each flush finish theirs),
+         * so the log can be cleared. */
+        at24_flashErase(FW_EEPROM_LOG_ADDR);
+        slot = 0;
+    }
+    if (!at24_sectorIsBlank(FW_EEPROM_SCRATCH_ADDR))
+    {
+        at24_flashErase(FW_EEPROM_SCRATCH_ADDR);
+    }
+    if (!at24_programSector(FW_EEPROM_SCRATCH_ADDR, at24_cacheWords))
+    {
+        /* Scratch didn't verify; leave the target untouched */
+        at24_cacheDirty = true;
+        return;
+    }
+    crc = at24_crc32(at24_cache, SECTOR_SIZE);
+    at24_logWrite(slot, at24_cacheSector, LOG_STATE_BEGIN, crc);
+
+    at24_flashErase(addr);
+    at24_programSector(addr, at24_cacheWords);
+
+    at24_logWrite(slot, at24_cacheSector, LOG_STATE_DONE, crc);
+}
+
+static void at24_selectSector(uint8_t sector)
+{
+    if (sector == at24_cacheSector)
+    {
+        return;
+    }
+    at24_flush();
+    memcpy(at24_cacheWords, (const void *)at24_sectorAddr(sector), SECTOR_SIZE);
+    at24_cacheSector = sector;
+}
+
+static uint8_t at24_readByte(uint16_t addr)
+{
+    if ((addr / SECTOR_SIZE) == at24_cacheSector)
+    {
+        return at24_cache[addr % SECTOR_SIZE];
+    }
+    return *(const uint8_t *)(FW_EEPROM_DATA_ADDR + addr);
+}
+
+static void at24_writeByte(uint16_t addr, uint8_t data)
+{
+    at24_selectSector(addr / SECTOR_SIZE);
+    if (at24_cache[addr % SECTOR_SIZE] != data)
+    {
+        at24_cache[addr % SECTOR_SIZE] = data;
+        at24_cacheDirty = true;
+    }
+}
+
+/*
+ * Public API
  */
 
 uint32_t at24_open(i2c_tar_driver_t *pI2CTarDriverInst)
 {
-    uint32_t eepromState;
-
     at24_i2c_tar_driver_handle = pI2CTarDriverInst;
-
-    __disable_irq();
-    eepromState = EEPROM_TypeB_init();
-    __enable_irq();
-
-    if (eepromState == EEPROM_EMULATION_INIT_ERROR ||
-            eepromState == EEPROM_EMULATION_TRANSFER_ERROR)
-    {
-        return eepromState;
-    }
-
     at24_rw_addr = 0x0000;
+    at24_cacheSector = NO_SECTOR;
+    at24_cacheDirty = false;
+
+    at24_recover();
 
     return 0;
 }
 
-void at24_garbageCollection(void)
+void at24_service(void)
 {
-    if (gEEPROMTypeBEraseFlag == 1)
+    I2C_Regs *module;
+    uint32_t primask;
+
+    if (!at24_cacheDirty)
     {
-        __disable_irq();
-        EEPROM_TypeB_eraseGroup();
-        gEEPROMTypeBEraseFlag = 0;
-        __enable_irq();
+        return;
     }
-}
-
-/**
- * Helper functions for interfacing with the TI Type-B EEPROM emulation library
- * on an EEPROM address index basis.
- */
-
-__STATIC_INLINE uint32_t at24_eeprom_emu_read(uint16_t itemIndex)
-{
-    uint32_t eepromData;
-
-    eepromData = EEPROM_TypeB_readDataItem(itemIndex);
-    if (gEEPROMTypeBSearchFlag == 0)
+    if (at24_writeCount != at24_serviceWriteCount)
     {
-        eepromData = AT24_EMU_MEM_BLANK;
+        /* Written since the last tick; wait for a quiet one */
+        at24_serviceWriteCount = at24_writeCount;
+        return;
     }
-    return eepromData;
-}
 
-__STATIC_INLINE void at24_eeprom_emu_write(uint16_t itemIndex, uint32_t data)
-{
-    EEPROM_TypeB_write(itemIndex, data);
-}
+    /* Take the target offline (so we NAK) only between bus transactions, and
+     * never in the middle of one of ours. */
+    module = at24_i2c_tar_driver_handle->pModule;
+    primask = __get_PRIMASK();
+    __disable_irq();
+    if ((at24_i2c_tar_driver_handle->state != I2C_TAR_DRV_STATE__IDLE) ||
+        (DL_I2C_getTargetStatus(module) & DL_I2C_TARGET_STATUS_BUS_BUSY))
+    {
+        __set_PRIMASK(primask);
+        return;
+    }
+    DL_I2C_disableTarget(module);
+    __set_PRIMASK(primask);
 
-/**
- * I2C target driver callback function implementations
- */
+    at24_flush();
+
+    DL_I2C_enableTarget(module);
+}
 
 void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
 {
-    at24_eeprom_emu_item_data itemData;
-    uint16_t itemIndex;
-    uint16_t itemOffset;
-    uint16_t byteOffset;
-    uint16_t activeItemIndex;
+    uint16_t addr;
+    uint16_t pageBase;
+    uint16_t pageOffset;
 
-    /* If insufficient address data is loaded, bail out
-    * and don't update the R/W byte address pointer. */
+    /* Runs from the I2C ISR with the target disabled, so the bus controller
+     * gets NAKs while any flash work here is in progress. */
     if (bytes < 2)
     {
         return;
     }
 
-    /* Update the R/W byte address with the first two bytes received.
-     * Ensure the address is bound within 0 to AT24_EMU_MAX_BYTES-1 
-     */
-    at24_rw_addr = (uint16_t)(I2CTarDriver_read( \
-        at24_i2c_tar_driver_handle)) << 8;
-    at24_rw_addr = at24_rw_addr | (uint16_t)(I2CTarDriver_read( \
-        at24_i2c_tar_driver_handle));
-    at24_rw_addr %= AT24_EMU_MAX_BYTES;
+    addr = (uint16_t)(I2CTarDriver_read(at24_i2c_tar_driver_handle)) << 8;
+    addr |= (uint16_t)(I2CTarDriver_read(at24_i2c_tar_driver_handle));
+    addr %= AT24_SIZE;
     bytes -= 2;
+    at24_rw_addr = addr;
 
-    /* If there is no data and this is just an address reception, then we are
-     * done.  Likewise, even if there is data, if this is an I2C RESTART trigger
-     * we will not allow writes in that case as we don't want to be running
-     * flash operations in the middle of an ongoing I2C frame. */
+    /* An address-only write, or data followed by a RESTART (a read is
+     * coming, not a write cycle), only moves the address pointer. */
     if ((bytes == 0) || (trig == I2C_TAR_DRV_CALL_TRIG__RESTART))
     {
         return;
     }
 
-    /* Otherwise, take the data written via I2C and store it into emulated
-     * EEPROM using the EEPROM write helper function. We will also
-     * increment the RW address accordingly and handle the wrap-around case. */
-    if (at24_rw_addr >= AT24_EMU_TOT_BYTES) 
+    /* Page write: the address wraps within the 64 byte page */
+    pageBase = addr & ~(uint16_t)(AT24_PAGE_SIZE - 1);
+    pageOffset = addr & (AT24_PAGE_SIZE - 1);
+    while (bytes--)
     {
-        // skip writing, nothing we need to do, not wrapping around
-    } 
-    else if (bytes == 1)
-    {
-        /* If this is a byte write only, we can do a read-modify-write
-        * on just one 4-byte EEPROM data item, and increment the R/W
-        * byte address for any subsequent operation. */
-        itemIndex = at24_rw_addr >> 2;
-        itemOffset = at24_rw_addr % 4;
-        itemData.u32 = at24_eeprom_emu_read(itemIndex);
-        itemData.u8[itemOffset] = I2CTarDriver_read(at24_i2c_tar_driver_handle);
-        __disable_irq();
-        at24_eeprom_emu_write(itemIndex, itemData.u32);
-        __enable_irq();
-        at24_rw_addr = (at24_rw_addr + 1) % AT24_EMU_MAX_BYTES;
+        addr = pageBase + pageOffset;
+        at24_writeByte(addr, I2CTarDriver_read(at24_i2c_tar_driver_handle));
+        pageOffset = (pageOffset + 1) & (AT24_PAGE_SIZE - 1);
     }
+    at24_rw_addr = pageBase + pageOffset;
+    at24_writeCount++;
 
-    /* If this is more than a byte write, we have more work to do.
-     * The at24_writebuf array will be used as a RAM copy of the
-     * active page, which will be read out, updated, and any
-     * changed EEPROM data items will be written back to flash. */
-    else if (bytes > 1)
+    /* A sequential writer has finished this sector: write it back now
+     * rather than waiting for the next sector or the idle timer. */
+    if (((addr + 1) % SECTOR_SIZE) == 0)
     {
-        /* Read in active page to SRAM page buffer by finding item index and
-         * then aligning to start of page boundary */
-        itemIndex = at24_rw_addr >> 2;
-        itemIndex &= 0xFFF8;
-        for (activeItemIndex=0; activeItemIndex<AT24_EMU_PAGE_TOT_ITEMS; \
-            activeItemIndex++)
-        {
-            at24_pagebuf.u32[activeItemIndex] = at24_eeprom_emu_read(itemIndex);
-            itemIndex++;
-        }
-
-        /* Read new data from I2C target driver and write to SRAM page buffer */
-        byteOffset = at24_rw_addr % AT24_EMU_PAGE_TOT_BYTES;
-        while(bytes--)
-        {
-            at24_pagebuf.u8[byteOffset] = I2CTarDriver_read( \
-                at24_i2c_tar_driver_handle);
-            byteOffset = (byteOffset + 1) % AT24_EMU_PAGE_TOT_BYTES;
-        }
-
-        /* Write back SRAM page buffer into EEPROM memory for any EEPROM
-         * emulation items which have changed values */
-        itemIndex = at24_rw_addr >> 2;
-        itemIndex &= 0xFFF8;
-        for (activeItemIndex=0; activeItemIndex<AT24_EMU_PAGE_TOT_ITEMS; \
-            activeItemIndex++)
-        {
-            if (at24_pagebuf.u32[activeItemIndex] != at24_eeprom_emu_read( \
-                itemIndex))
-            {
-                /* Disable interrupts globally during flash operation
-                 * for safety */
-                __disable_irq();
-                at24_eeprom_emu_write(itemIndex, \
-                    at24_pagebuf.u32[activeItemIndex]);
-                __enable_irq();
-            }
-            itemIndex++;
-        }
-
-        /* Update RW address to last written byte address in EEPROM space */
-        itemIndex = at24_rw_addr >> 2;
-        itemIndex &= 0xFFF8;
-        at24_rw_addr = (itemIndex * AT24_EMU_ITEM_BYTES) + byteOffset;
+        at24_flush();
     }
-
-    /* Run garbage collection check in case we need to free flash sectors */
-    at24_garbageCollection();
 }
 
 void at24_i2c_tx_callback(void)
 {
-    uint16_t itemIndex;
-    uint16_t itemOffset;
-    uint16_t bytes;
+    uint8_t i;
 
-    /* Double check that our RW address pointer (in EEPROM space)
-     * is within the EEPROM total area.  Roll it over to EEPROM space if not.
-     */
-    at24_rw_addr %= AT24_EMU_MAX_BYTES;
-    if (at24_rw_addr < AT24_EMU_TOT_BYTES) {
-        /* Get the item containing the first byte to transmit. */
-        itemIndex = at24_rw_addr >> 2;
-        itemOffset = at24_rw_addr % 4;
-        at24_pagebuf.u32[0] = at24_eeprom_emu_read(itemIndex);
-
-        /* If the first byte is not aligned to an item boundary, get the next byte
-        * so that we can send 4 sequential byte starting from the request */
-        if (itemOffset != 0)
-        {
-            itemIndex++;
-            if (itemIndex >= AT24_EMU_TOT_ITEMS) {
-                at24_pagebuf.u32[1] = AT24_EMU_MEM_BLANK;
-            } else {
-                at24_pagebuf.u32[1] = at24_eeprom_emu_read(itemIndex);
-            }
-        }
-    } else {
-        /* If the RW address is out of bounds, send 0xFF */
-        at24_pagebuf.u32[0] = AT24_EMU_MEM_BLANK;
-        at24_pagebuf.u32[1] = AT24_EMU_MEM_BLANK;
-    }
-
-    /* Write the bytes to the I2C target driver for transmission */
-    bytes = 4;
-    while (bytes--)
+    /* Called each time the transmit FIFO runs dry during a read; queue the
+     * next few bytes.  Reads wrap at the end of memory. */
+    for (i = 0; i < 4; i++)
     {
         I2CTarDriver_write(at24_i2c_tar_driver_handle, \
-            at24_pagebuf.u8[itemOffset++]);
+            at24_readByte(at24_rw_addr));
+        at24_rw_addr = (at24_rw_addr + 1) % AT24_SIZE;
     }
-
-    /* Increment the RW pointer in EEPROM space and catch any rollover */
-    at24_rw_addr += 4;
-    at24_rw_addr %= AT24_EMU_MAX_BYTES;
 }

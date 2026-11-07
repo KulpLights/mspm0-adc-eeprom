@@ -57,6 +57,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "system.h"
+#include "emulation/at24_emulation.h"
 
 int main(void)
 {
@@ -70,6 +71,8 @@ int main(void)
         {
             System_clearPendingEvents(SYSEVENT__WAKE_TIMER);
             DL_WWDT_restart(WWDT0_INST);
+            /* Write back EEPROM data once writes have gone quiet */
+            at24_service();
         }
 
         System_sleepUntilInterrupt();

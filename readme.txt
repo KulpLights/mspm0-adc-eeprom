@@ -21,17 +21,35 @@ PocketBeagle 2
 Currently implemented functions
 ================================================================================
 
-EEPROM emulation (AT24C I2C EEPROM compatible)
+EEPROM emulation (AT24C256 compatible)
  - Available at I2C address 0x50
- - 4kB (32kbit) memory
- - 32B page write size
+ - 16kB memory, 2 address bytes, 64B page write size; accessed as a 32kB
+   24c256 the contents appear twice.  The layout fits the 32kB MSPM0L1305
+   and runs unchanged on the MSPM0L1306.  A 32kB EEPROM layout for the
+   L1306 only is available by building with FW_LAYOUT_64K (see
+   source/board/fw_layout.h).
+ - Contents stored as-is in flash (layout in source/board/fw_layout.h);
+   writes collect in a RAM copy of one 1kB flash sector that is written
+   back when a write moves to another sector, when the end of the sector is
+   written, or once writes stop for a wake timer tick (0.5-1s).  Rewrites
+   that need an erase go through a scratch sector and a log, so a reset or
+   power loss leaves each sector either old or new.
+ - The target NAKs while a sector is written back (tens of ms, up to a few
+   hundred ms on worn flash); with Linux use at24.write_timeout=1000.
 
-================================================================================
-Future planned extensions
-================================================================================
+Analog to digital converter, 8 channels @ 12 bit resolution, either
+ - AD7291 compatible (mspm0-adc-eeprom.txt, mspm0-adc.txt), or
+ - AD7998 compatible (mspm0-ad7998-eeprom.txt, mspm0-ad7998.txt), for
+   kernels that ship the ad799x driver but not ad7291 (e.g. Raspberry Pi).
+   Instantiate with compatible "adi,ad7998" or new_device "ad7998 <addr>".
+   The ADC converts against VDDA, which matches the AD7998 using its
+   supply as reference, so give the node a vcc-supply of the board's 3.3V
+   for in_voltage_scale to work.  The driver provides a triggered buffer
+   but no trigger is set up; read the in_voltageN_raw files.
 
-Analog to digital converter
- - 8 channels @ 12 bit resolution
+Flashing: firmware with the layout descriptor at 0xC0 (all builds from this
+tree) expects the EEPROM image as raw bytes at the descriptor's address; a
+flasher that knows the descriptor reads it from the firmware image.
 
 ================================================================================
 Dependencies
@@ -192,3 +210,10 @@ Right now this seems like the better trade-off.  To counteract the
 longer write times after extensive EEPROM usage, it is recommended
 to set at24.write_timeout=1000 at the kernel command line (can
 be done via uEnv.txt).
+
+Unreleased
+EEPROM rewritten: 16kB stored as-is in flash with a RAM sector cache and a
+power-fail safe scratch/log rewrite, replacing the TI Type B EEPROM
+emulation library.  The layout fits the 32kB MSPM0L1305 as well as the
+MSPM0L1306.  Firmware layout descriptor at 0xC0 for the flasher.
+AD7998 compatible ADC builds added beside the AD7291 ones.

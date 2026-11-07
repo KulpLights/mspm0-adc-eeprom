@@ -42,7 +42,6 @@
 #include "ti_msp_dl_config.h"
 #include "communication/i2c_tar_driver.h"
 #include "emulation/at24_emulation.h"
-#include "emulation/ad7291_emulation.h"
 #include "system.h"
 
 /*!
@@ -85,8 +84,10 @@ i2c_tar_driver_t tar_i2c =
     .rxBufLen = TAR_I2C_RXBUF_LEN,
     .pTxBuf = &tar_i2c_txbuf[0],
     .txBufLen = TAR_I2C_TXBUF_LEN,
-    .rxCallback = &ad7291_i2c_rx_callback,
-    .txCallback = &ad7291_i2c_tx_callback,
+    /* The ADC emulation callbacks are filled in by the app's
+     * openADCEmulation() */
+    .rxCallback = I2C_TAR_DRIVER_NO_CALLBACK,
+    .txCallback = I2C_TAR_DRIVER_NO_CALLBACK,
     .rxCallback2 = &at24_i2c_rx_callback,
     .txCallback2 = &at24_i2c_tx_callback
 };
@@ -107,6 +108,7 @@ static const DL_I2C_ClockConfig gI2CClockConfig = {
 };
 
 extern void setupAppSpecific();
+extern void openADCEmulation(i2c_tar_driver_t *pI2CTarDriverInst);
 
 void System_init(void)
 {
@@ -163,7 +165,7 @@ void System_init(void)
     /* Start the ADC emulation module to ensure it is online before starting
      * the I2C target driver
      */
-    ad7291_open(&tar_i2c);
+    openADCEmulation(&tar_i2c);
 
     /* Temporarily leave peripheral SPI disabled until we add that functionality */
     DL_SPI_disable(PER_SPI_INST);

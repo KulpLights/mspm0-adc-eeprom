@@ -2,8 +2,13 @@
 #include "../board/ti_msp_dl_config.h"
 #include "communication/i2c_tar_driver.h"
 #include "emulation/at24_emulation.h"
+#ifdef ADC_AD7998
+#include "emulation/ad7998_emulation.h"
+#else
 #include "emulation/ad7291_emulation.h"
+#endif
 #include "system.h"
+#include "fw_layout.h"
 
 
 #define SSD1306_CNTRL_CMD                                          0x00
@@ -120,7 +125,7 @@ void OLED_multiWrite(uint8_t sz, uint8_t *c) {
 uint8_t chunk[MAX_CHUNK_SIZE] = {0};
 #define SCREEN_SIZE (LED_DISPLAY_WIDTH*LED_DISPLAY_HEIGHT/8)+MAX_CHUNK_SIZE
 
-const uint8_t *oledScreen = (const uint8_t *)0x0000F000;
+const uint8_t *oledScreen = (const uint8_t *)FW_OLED_IMAGE_ADDR;
 
 inline void clearMem(uint8_t *b, uint16_t sz) {
     for (int x = 0; x < sz; x++) {
@@ -240,4 +245,16 @@ int setTargetOwnAddress() {
 
 void setupAppSpecific() {
     System_InitOLED();
+}
+
+void openADCEmulation(i2c_tar_driver_t *pI2CTarDriverInst) {
+#ifdef ADC_AD7998
+    pI2CTarDriverInst->rxCallback = &ad7998_i2c_rx_callback;
+    pI2CTarDriverInst->txCallback = &ad7998_i2c_tx_callback;
+    ad7998_open(pI2CTarDriverInst);
+#else
+    pI2CTarDriverInst->rxCallback = &ad7291_i2c_rx_callback;
+    pI2CTarDriverInst->txCallback = &ad7291_i2c_tx_callback;
+    ad7291_open(pI2CTarDriverInst);
+#endif
 }

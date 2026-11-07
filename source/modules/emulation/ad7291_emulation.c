@@ -39,8 +39,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <ti/driverlib/dl_adc12.h>
 #include "ad7291_emulation.h"
+#include "adc_input.h"
 
 /*!
  * @brief Total # analog input channels
@@ -112,18 +112,6 @@ ad7291_reg_t ad7291_regFile[AD7291_REGFILE_LEN];
 /**
  * @brief   AD7291 emulated register file storage
  */
-const uint8_t ad7291_chLUT[AD7291_CH_CNT] =
-{
-    DL_ADC12_INPUT_CHAN_1,
-    DL_ADC12_INPUT_CHAN_2,
-    DL_ADC12_INPUT_CHAN_3,
-    DL_ADC12_INPUT_CHAN_4,
-    DL_ADC12_INPUT_CHAN_5,
-    DL_ADC12_INPUT_CHAN_6,
-    DL_ADC12_INPUT_CHAN_8,
-    DL_ADC12_INPUT_CHAN_9
-};
-
 /**
  * @brief   AD7291 emulated register file pointer register
  */
@@ -168,7 +156,6 @@ static uint8_t ad7291_getNextChannel(void);
  *  @return     The 12-bit conversion result
  *
  */
-static uint16_t AD7291_convertAnalogInput(uint8_t channel);
 
 /**
  * Standard function implementations
@@ -201,7 +188,7 @@ void ad7291_open(i2c_tar_driver_t *pI2CTarDriverInst)
     /*
      * Take dummy conversion of the internal supply monitor to fire up the ADC
      */
-    AD7291_convertAnalogInput(15);
+    adc_input_init();
 
     return;
 }
@@ -234,28 +221,6 @@ uint8_t ad7291_getNextChannel(void)
     } while ((enabledChannelsMask & channelSelMask) == 0);
 
     return channelSel;
-}
-
-uint16_t AD7291_convertAnalogInput(uint8_t channel)
-{
-    uint16_t result;
-
-    DL_ADC12_configConversionMem(ADC0, DL_ADC12_MEM_IDX_0, channel,
-        DL_ADC12_REFERENCE_VOLTAGE_VDDA,
-        DL_ADC12_SAMPLE_TIMER_SOURCE_SCOMP0,
-        DL_ADC12_AVERAGING_MODE_DISABLED,
-        DL_ADC12_BURN_OUT_SOURCE_DISABLED,
-        DL_ADC12_TRIGGER_MODE_AUTO_NEXT,
-        DL_ADC12_WINDOWS_COMP_MODE_DISABLED);
-    DL_ADC12_enableConversions(ADC0);
-    DL_ADC12_startConversion(ADC0);
-    while(!DL_ADC12_getRawInterruptStatus(ADC0,
-        DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED));
-    DL_ADC12_clearInterruptStatus(ADC0,
-        DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED);
-    result = DL_ADC12_getMemResult(ADC0, DL_ADC12_MEM_IDX_0);
-
-    return result;
 }
 
 void ad7291_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
@@ -308,7 +273,7 @@ void ad7291_i2c_tx_callback(void)
         else
         {
             ad7291_regFile[AD7291_REG_VCONV_RES].r16 \
-                = AD7291_convertAnalogInput(ad7291_chLUT[channel]);
+                = adc_input_convert(channel);
             ad7291_regFile[AD7291_REG_VCONV_RES].r8[1] \
                 |= (channel << 4) & 0xF0;
         }

@@ -36,9 +36,23 @@
 
 MEMORY
 {
-    FLASH           (RX)  : origin = 0x00000000, length = 0x00003FFF
-    EEPROM_AREA     (RX)  : origin = 0x00004000, length = 0x0000B000
-    EXTRA_AREA      (RX)  : origin = 0x0000F000, length = 0x00001000
+    /* Keep in step with fw_layout.h */
+#ifdef FW_LAYOUT_64K
+    FLASH           (RX)  : origin = 0x00000000, length = 0x00004000
+    UNUSED_AREA     (RX)  : origin = 0x00004000, length = 0x00003000
+    EEPROM_SCRATCH  (RX)  : origin = 0x00007000, length = 0x00000400
+    EEPROM_LOG      (RX)  : origin = 0x00007400, length = 0x00000400
+    OLED_IMAGE      (RX)  : origin = 0x00007800, length = 0x00000400
+    EEPROM_DATA     (RX)  : origin = 0x00007C00, length = 0x00008000
+    /* The CPU can't read the last 8 bytes of flash (prefetch hard fault) */
+    UNUSED_TOP      (RX)  : origin = 0x0000FC00, length = 0x00000400
+#else
+    FLASH           (RX)  : origin = 0x00000000, length = 0x00003400
+    EEPROM_DATA     (RX)  : origin = 0x00003400, length = 0x00004000
+    OLED_IMAGE      (RX)  : origin = 0x00007400, length = 0x00000400
+    EEPROM_SCRATCH  (RX)  : origin = 0x00007800, length = 0x00000400
+    EEPROM_LOG      (RX)  : origin = 0x00007C00, length = 0x00000400
+#endif
     SRAM            (RWX) : origin = 0x20000000, length = 0x00001000
     BCR_CONFIG      (R)   : origin = 0x41C00000, length = 0x00000080
     BSL_CONFIG      (R)   : origin = 0x41C00100, length = 0x00000080
@@ -47,6 +61,9 @@ MEMORY
 SECTIONS
 {
     .intvecs:   > 0x00000000
+    /* FW_LAYOUT_ADDR, read by the flasher.  Padded to whole 8 byte flash
+     * words: the BSL rejects program packets of any other length. */
+    .fwlayout:  palign(8), fill = 0xFFFFFFFF {} > 0x000000C0
     .text   : palign(8) {} > FLASH
     .const  : palign(8) {} > FLASH
     .cinit  : palign(8) {} > FLASH

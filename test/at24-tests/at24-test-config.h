@@ -48,10 +48,10 @@
 #define TEST__I2C_TAR_ADDR 0x50
 
 // EEPROM size of target device (DUT)
-#define TEST__EEPROM_TOTAL_SIZE 4096
+#define TEST__EEPROM_TOTAL_SIZE 16384
 
 // EEPROM page size of target device (DUT)
-#define TEST__EEPROM_PAGE_SIZE 32
+#define TEST__EEPROM_PAGE_SIZE 64
 
 // EEPROM page count of target device (DUT)
 #define TEST__EEPROM_PAGE_CNT (TEST__EEPROM_TOTAL_SIZE /\

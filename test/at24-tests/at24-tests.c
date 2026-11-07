@@ -78,6 +78,39 @@ assert_t readFromDUT(int devHandle, uint8_t *data, uint32_t len)
     return ASSERT_FAIL;
 }
 
+/* Read the whole device starting at address, wrapping at the end.  Linux
+ * i2c-dev caps a single read() at 8192 bytes, so read in chunks, setting the
+ * address before each one. */
+#define TEST__I2CDEV_MAX_READ 8192
+assert_t readWholeFromDUT(int devHandle, uint32_t address, uint8_t *data)
+{
+    uint8_t addrBuf[2];
+    uint32_t done;
+    uint32_t chunk;
+    uint32_t a;
+
+    for (done = 0; done < TEST__EEPROM_TOTAL_SIZE; done += chunk)
+    {
+        chunk = TEST__EEPROM_TOTAL_SIZE - done;
+        if (chunk > TEST__I2CDEV_MAX_READ)
+        {
+            chunk = TEST__I2CDEV_MAX_READ;
+        }
+        a = (address + done) % TEST__EEPROM_TOTAL_SIZE;
+        addrBuf[0] = (uint8_t)((a >> 8) & 0xFF);
+        addrBuf[1] = (uint8_t)(a & 0xFF);
+        if (writeToDUT(devHandle, &addrBuf[0], 2) != ASSERT_PASS)
+        {
+            return ASSERT_FAIL;
+        }
+        if (readFromDUT(devHandle, &data[done], chunk) != ASSERT_PASS)
+        {
+            return ASSERT_FAIL;
+        }
+    }
+    return ASSERT_PASS;
+}
+
 assert_t zeroEEPROM(int devHandle)
 {
 	uint8_t txBuf[TEST__EEPROM_PAGE_SIZE+2];
@@ -287,7 +320,7 @@ assert_t test2(int devHandle)
         printf(" > test2: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test2: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -366,7 +399,7 @@ assert_t test3(int devHandle)
         printf(" > test3: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test3: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -407,15 +440,17 @@ assert_t test4(int devHandle)
 	printf(" > test4: Offset page write");
     printf(" > test4: Writing %u bytes from offset...\n", TEST__EEPROM_PAGE_SIZE);
     
-    compareBufIdx = 41;
     address = 41;
     printf(" > test4: Writing %u bytes at 0x%x...\n", TEST__EEPROM_PAGE_SIZE, address);
     txBuf[0] = (uint8_t)((address >> 8) & 0xFF);
     txBuf[1] = (uint8_t)(address & 0xFF);
+    /* A page write wraps around within its page */
     for (i=0; i<TEST__EEPROM_PAGE_SIZE; i++)
     {
         txBuf[2+i] = i;
-        compareBuf[compareBufIdx++] = i;
+        compareBufIdx = (address & ~(TEST__EEPROM_PAGE_SIZE - 1)) +
+            ((address + i) & (TEST__EEPROM_PAGE_SIZE - 1));
+        compareBuf[compareBufIdx] = i;
     }
     if (writeToDUT(devHandle, &txBuf[0], (TEST__EEPROM_PAGE_SIZE+2)) != ASSERT_PASS)
     {
@@ -423,27 +458,6 @@ assert_t test4(int devHandle)
         return ASSERT_FAIL;
     }
     usleep(TEST__EEPROM_WRITE_DELAY);
-
-    compareBuf[32] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE];
-    compareBuf[33] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 1];
-    compareBuf[34] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 2];
-    compareBuf[35] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 3];
-    compareBuf[36] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 4];
-    compareBuf[37] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 5];
-    compareBuf[38] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 6];
-    compareBuf[39] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 7];
-    compareBuf[40] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 8];
-    compareBuf[41] = compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 9];
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 1] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 2] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 3] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 4] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 5] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 6] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 7] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 8] = 0x00;
-    compareBuf[32 + TEST__EEPROM_PAGE_SIZE + 9] = 0x00;
 
     printf(" > test4: Reading %u bytes from from 0x00, whole device memory...\n", TEST__EEPROM_TOTAL_SIZE);
     address = 0x0000;
@@ -455,7 +469,7 @@ assert_t test4(int devHandle)
         printf(" > test4: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test4: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -519,7 +533,7 @@ assert_t test5(int devHandle)
         printf(" > test5a: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5a: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -554,7 +568,7 @@ assert_t test5(int devHandle)
         printf(" > test5b: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5b: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -589,7 +603,7 @@ assert_t test5(int devHandle)
         printf(" > test5c: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5c: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -624,7 +638,7 @@ assert_t test5(int devHandle)
         printf(" > test5d: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5d: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -659,7 +673,7 @@ assert_t test5(int devHandle)
         printf(" > test5e: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5e: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -694,7 +708,7 @@ assert_t test5(int devHandle)
         printf(" > test5f: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5f: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -729,7 +743,7 @@ assert_t test5(int devHandle)
         printf(" > test5g: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5g: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -764,7 +778,7 @@ assert_t test5(int devHandle)
         printf(" > test5i: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5i: I2C read failed!\n");
         return ASSERT_FAIL;
@@ -799,7 +813,7 @@ assert_t test5(int devHandle)
         printf(" > test5j: I2C address write failed!\n");
         return ASSERT_FAIL;
     }
-    if (readFromDUT(devHandle, &rxBuf[0], TEST__EEPROM_TOTAL_SIZE) != ASSERT_PASS)
+    if (readWholeFromDUT(devHandle, address, &rxBuf[0]) != ASSERT_PASS)
     {
         printf(" > test5j: I2C read failed!\n");
         return ASSERT_FAIL;
