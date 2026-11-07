@@ -52,6 +52,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_DEBUG_init();
     SYSCFG_DL_SYSCTL_init();
     SYSCFG_DL_WAKEUP_TIMER_init();
+    SYSCFG_DL_FLUSH_TIMER_init();
     SYSCFG_DL_TAR_I2C_init();
     SYSCFG_DL_PER_SPI_init();
     SYSCFG_DL_ADC_init();
@@ -62,6 +63,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 {
     DL_GPIO_reset(GPIOA);
     DL_TimerG_reset(WAKEUP_TIMER_INST);
+    DL_TimerG_reset(FLUSH_TIMER_INST);
     DL_I2C_reset(TAR_I2C_INST);
     DL_SPI_reset(PER_SPI_INST);
     DL_ADC12_reset(ADC_INST);
@@ -69,6 +71,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 
     DL_GPIO_enablePower(GPIOA);
     DL_TimerG_enablePower(WAKEUP_TIMER_INST);
+    DL_TimerG_enablePower(FLUSH_TIMER_INST);
     DL_I2C_enablePower(TAR_I2C_INST);
     DL_SPI_enablePower(PER_SPI_INST);
     DL_ADC12_enablePower(ADC_INST);
@@ -159,6 +162,34 @@ SYSCONFIG_WEAK void SYSCFG_DL_WAKEUP_TIMER_init(void) {
 
 
 
+}
+
+/*
+ * FLUSH_TIMER: LFCLK (32768 Hz), one-shot.  Not started here; it is
+ * (re)started after each EEPROM write and fires once the writes go quiet.
+ * FLUSH_TIMER_INST_LOAD_VALUE = (10 ms * 32768 Hz) - 1
+ */
+static const DL_TimerG_ClockConfig gFLUSH_TIMERClockConfig = {
+    .clockSel    = DL_TIMER_CLOCK_LFCLK,
+    .divideRatio = DL_TIMER_CLOCK_DIVIDE_1,
+    .prescale    = 0U,
+};
+
+static const DL_TimerG_TimerConfig gFLUSH_TIMERTimerConfig = {
+    .period     = FLUSH_TIMER_INST_LOAD_VALUE,
+    .timerMode  = DL_TIMER_TIMER_MODE_ONE_SHOT,
+    .startTimer = DL_TIMER_STOP,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_FLUSH_TIMER_init(void) {
+
+    DL_TimerG_setClockConfig(FLUSH_TIMER_INST,
+        (DL_TimerG_ClockConfig *) &gFLUSH_TIMERClockConfig);
+
+    DL_TimerG_initTimerMode(FLUSH_TIMER_INST,
+        (DL_TimerG_TimerConfig *) &gFLUSH_TIMERTimerConfig);
+    DL_TimerG_enableInterrupt(FLUSH_TIMER_INST , DL_TIMERG_INTERRUPT_ZERO_EVENT);
+    DL_TimerG_enableClock(FLUSH_TIMER_INST);
 }
 
 

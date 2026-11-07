@@ -67,11 +67,17 @@ int main(void)
     /* Enter the application loop */
     while (1)
     {
+        if (System_getPendingEvents() & SYSEVENT__FLUSH_TIMER)
+        {
+            System_clearPendingEvents(SYSEVENT__FLUSH_TIMER);
+            /* EEPROM writes have gone quiet: write the data back now */
+            at24_idle();
+        }
         if (System_getPendingEvents() & SYSEVENT__WAKE_TIMER)
         {
             System_clearPendingEvents(SYSEVENT__WAKE_TIMER);
             DL_WWDT_restart(WWDT0_INST);
-            /* Write back EEPROM data once writes have gone quiet */
+            /* Backstop: retry a write-back that failed or never ran */
             at24_service();
         }
 

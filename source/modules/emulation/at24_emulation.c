@@ -45,6 +45,7 @@
 #include <ti/driverlib/dl_i2c.h>
 #include "fw_layout.h"
 #include "at24_emulation.h"
+#include "system.h"
 
 #define AT24_SIZE               FW_EEPROM_DATA_SIZE
 #define AT24_PAGE_SIZE          64
@@ -382,21 +383,13 @@ uint32_t at24_open(i2c_tar_driver_t *pI2CTarDriverInst)
     return 0;
 }
 
-void at24_service(void)
+/* Flush the cached sector with the I2C target offline, so the bus
+ * controller sees NAKs meanwhile.  Returns false, without flushing, if a
+ * bus transaction is in progress. */
+static bool at24_flushOffline(void)
 {
     I2C_Regs *module;
     uint32_t primask;
-
-    if (!at24_cacheDirty)
-    {
-        return;
-    }
-    if (at24_writeCount != at24_serviceWriteCount)
-    {
-        /* Written since the last tick; wait for a quiet one */
-        at24_serviceWriteCount = at24_writeCount;
-        return;
-    }
 
     /* Take the target offline (so we NAK) only between bus transactions, and
      * never in the middle of one of ours. */
@@ -407,7 +400,7 @@ void at24_service(void)
         (DL_I2C_getTargetStatus(module) & DL_I2C_TARGET_STATUS_BUS_BUSY))
     {
         __set_PRIMASK(primask);
-        return;
+        return false;
     }
     DL_I2C_disableTarget(module);
     __set_PRIMASK(primask);
@@ -415,6 +408,31 @@ void at24_service(void)
     at24_flush();
 
     DL_I2C_enableTarget(module);
+    return true;
+}
+
+void at24_idle(void)
+{
+    if (at24_cacheDirty && !at24_flushOffline())
+    {
+        /* The bus is busy; try again after another quiet period */
+        System_armFlushTimer();
+    }
+}
+
+void at24_service(void)
+{
+    if (!at24_cacheDirty)
+    {
+        return;
+    }
+    if (at24_writeCount != at24_serviceWriteCount)
+    {
+        /* Written since the last tick; wait for a quiet one */
+        at24_serviceWriteCount = at24_writeCount;
+        return;
+    }
+    at24_flushOffline();
 }
 
 void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
@@ -454,6 +472,11 @@ void at24_i2c_rx_callback(uint32_t bytes, i2c_tar_driver_call_trig_t trig)
     }
     at24_rw_addr = pageBase + pageOffset;
     at24_writeCount++;
+
+    /* Write the data back once the writes go quiet, like a real EEPROM's
+     * write cycle; restarting the timer on every write lets a multi-page
+     * burst into one sector share a single erase. */
+    System_armFlushTimer();
 
     /* A sequential writer has finished this sector: write it back now
      * rather than waiting for the next sector or the idle timer. */

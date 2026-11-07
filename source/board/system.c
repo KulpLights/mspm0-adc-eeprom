@@ -174,6 +174,7 @@ void System_init(void)
 
     /* Enable interrupts used by the application */
     NVIC_EnableIRQ(WAKEUP_TIMER_INST_INT_IRQN);
+    NVIC_EnableIRQ(FLUSH_TIMER_INST_INT_IRQN);
     NVIC_EnableIRQ(TAR_I2C_INST_INT_IRQN);
 //    NVIC_EnableIRQ(PER_SPI_INST_INT_IRQN);
 }
@@ -197,6 +198,27 @@ void WAKEUP_TIMER_INST_IRQHandler(void)
     DL_Timer_clearInterruptStatus(WAKEUP_TIMER_INST, \
         DL_TIMER_INTERRUPT_ZERO_EVENT);
     System_pendingEvents |= SYSEVENT__WAKE_TIMER;
+}
+
+void System_armFlushTimer(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    DL_Timer_stopCounter(FLUSH_TIMER_INST);
+    DL_Timer_setTimerCount(FLUSH_TIMER_INST, FLUSH_TIMER_INST_LOAD_VALUE);
+    DL_Timer_clearInterruptStatus(FLUSH_TIMER_INST,
+        DL_TIMER_INTERRUPT_ZERO_EVENT);
+    NVIC_ClearPendingIRQ(FLUSH_TIMER_INST_INT_IRQN);
+    DL_Timer_startCounter(FLUSH_TIMER_INST);
+    __set_PRIMASK(primask);
+}
+
+void FLUSH_TIMER_INST_IRQHandler(void)
+{
+    DL_Timer_clearInterruptStatus(FLUSH_TIMER_INST, \
+        DL_TIMER_INTERRUPT_ZERO_EVENT);
+    System_pendingEvents |= SYSEVENT__FLUSH_TIMER;
 }
 
 void TAR_I2C_INST_IRQHandler(void)

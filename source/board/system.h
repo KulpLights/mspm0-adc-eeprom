@@ -59,6 +59,11 @@
 #define SYSEVENT__WAKE_TIMER 0x00000001
 
 /*!
+ * @brief EEPROM flush timer event pending flag: writes have gone quiet.
+ */
+#define SYSEVENT__FLUSH_TIMER 0x00000002
+
+/*!
  * @brief Variable for pending events needing application response.
  *
  * Interrupts requiring delay of LPM entry set bits in this variable.  The
@@ -81,6 +86,14 @@ extern void System_init(void);
 extern void System_sleepUntilInterrupt(void);
 
 /**
+ *  @brief      (Re)start the one-shot EEPROM flush timer.  When it expires,
+ *              SYSEVENT__FLUSH_TIMER is raised.  Safe to call from an ISR.
+ *  @param      none
+ *  @return     none
+ */
+extern void System_armFlushTimer(void);
+
+/**
  *  @brief      Get the current bit field of pending system events
  *  @param      none
  *  @return     Bit field of pending events
@@ -97,7 +110,13 @@ __STATIC_INLINE uint32_t System_getPendingEvents(void) \
  */
 __STATIC_INLINE void System_clearPendingEvents(uint32_t events) \
 {
+    /* ISRs set bits in System_pendingEvents; mask them around the
+     * read-modify-write so another event's bit can't be lost. */
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
     System_pendingEvents &= ~events;
+    __set_PRIMASK(primask);
 }
 
 #endif /* SYSTEM_H_ */

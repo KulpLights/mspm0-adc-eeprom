@@ -82,6 +82,12 @@ extern "C" {
 #define WAKEUP_TIMER_INST_INT_IRQN                              (TIMG0_INT_IRQn)
 #define WAKEUP_TIMER_INST_LOAD_VALUE                                    (16383U)
 
+/* Defines for FLUSH_TIMER: one-shot EEPROM write-back idle timeout */
+#define FLUSH_TIMER_INST                                                 (TIMG1)
+#define FLUSH_TIMER_INST_IRQHandler                             TIMG1_IRQHandler
+#define FLUSH_TIMER_INST_INT_IRQN                               (TIMG1_INT_IRQn)
+#define FLUSH_TIMER_INST_LOAD_VALUE                                       (327U)
+
 
 
 
@@ -158,6 +164,7 @@ void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_DEBUG_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_WAKEUP_TIMER_init(void);
+void SYSCFG_DL_FLUSH_TIMER_init(void);
 void SYSCFG_DL_TAR_I2C_init(void);
 void SYSCFG_DL_PER_SPI_init(void);
 void SYSCFG_DL_ADC_init(void);

@@ -43,7 +43,9 @@
  *  board/fw_layout.h), so reads come straight from flash.  Writes go to a
  *  RAM copy of one 1KB flash sector, which is written back to flash
  *  ("flushed") when a write lands in a different sector, when the last byte
- *  of the sector is written, or after a wake timer tick with no writes.
+ *  of the sector is written, or once no write has arrived for 10ms (the
+ *  flush timer, restarted by every write).  Reads of the cached sector come
+ *  from the RAM copy, so they always see the latest writes.
  *
  *  A flush that only programs flash words that are still erased is done in
  *  place.  Anything else is power-fail safe: the new sector contents are
@@ -71,8 +73,12 @@ extern void at24_i2c_rx_callback(uint32_t bytes, \
 
 extern void at24_i2c_tx_callback(void);
 
-/* Call from the main loop on each wake timer tick.  Flushes the RAM sector
- * copy once a full tick has passed with no writes. */
+/* Call from the main loop when the flush timer expires.  Flushes the RAM
+ * sector copy, or rearms the timer if a bus transaction is in progress. */
+extern void at24_idle(void);
+
+/* Call from the main loop on each wake timer tick.  A backstop for a flush
+ * that failed: flushes once a full tick has passed with no writes. */
 extern void at24_service(void);
 
 #endif /* COMMUNICATION_AT24_EMULATION_H_ */
